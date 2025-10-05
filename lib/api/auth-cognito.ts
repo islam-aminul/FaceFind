@@ -1,4 +1,5 @@
 import { CognitoIdentityProviderClient, InitiateAuthCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { signUp, confirmSignUp, signOut, resetPassword, confirmResetPassword } from 'aws-amplify/auth';
 import { LoginRequest, LoginResponse } from '@/types';
 import outputs from '../../amplify_outputs.json';
 
@@ -41,6 +42,8 @@ export class CognitoAuthService {
         status: 'ACTIVE' as any,
         phone: idTokenPayload.phone_number,
         companyName: idTokenPayload['custom:companyName'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       return {

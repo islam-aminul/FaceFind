@@ -99,9 +99,15 @@ FaceFind is a web-based face recognition photo sharing application for events li
 ### 3.1 Event Management
 
 **Event Creation (Admin):**
-- Required: Name, Organizer, Start/End DateTime, Location, Estimated Attendees, Max Photos, Grace Period (days), Retention Period (days), Confidence Threshold (%)
+- Required: Name, Organizer, Start/End DateTime, Location, Estimated Attendees, Max Photos, Grace Period (hours), Retention Period (days), Confidence Threshold (%)
 - Optional: Logo, Watermark Elements (multi-select), Resize Dimensions, Quality, Welcome Message, Welcome Picture
 - Payment Status: PENDING → PAID (admin marks)
+- **Billing Estimate:** Automatically calculated based on event configuration
+  - Inputs: Estimated Attendees, Max Photos, Retention Period, Photo Resolution
+  - Calculation: AWS costs (S3, Lambda, Rekognition, DynamoDB, CloudFront, SES) + Retention Multiplier + Overhead + Profit Margin
+  - Output: Detailed cost breakdown + Total estimated price
+  - Displayed to admin only (not to organizer)
+  - Used to bill organizer appropriately
 - Not accessible until PAID
 
 **Event States:**
@@ -239,7 +245,7 @@ FaceFind is a web-based face recognition photo sharing application for events li
 
 **Users:** userId, email, role, firstName, lastName, phone, companyName, portfolioUrl, specialization, bio, status, createdAt
 
-**Events:** eventId, eventName, organizerId, startDateTime, endDateTime, gracePeriodDays, retentionPeriodDays, location, estimatedAttendees, maxPhotos, confidenceThreshold, photoResizeWidth, photoResizeHeight, photoQuality, watermarkElements, eventLogoUrl, welcomeMessage, welcomePictureUrl, qrCodeUrl, paymentStatus, paymentAmount, status, rekognitionCollectionId
+**Events:** eventId, eventName, organizerId, startDateTime, endDateTime, gracePeriodDays, retentionPeriodDays, location, estimatedAttendees, maxPhotos, confidenceThreshold, photoResizeWidth, photoResizeHeight, photoQuality, watermarkElements, eventLogoUrl, welcomeMessage, welcomePictureUrl, qrCodeUrl, paymentStatus, paymentAmount (auto-calculated), status, rekognitionCollectionId
 
 **Photos:** photoId, eventId, photographerId, originalUrl, processedUrl, thumbnailUrl, fileSize, dimensions, capturedAt, uploadedAt, status, faceCount, rekognitionFaceIds, flaggedBy, flagReason
 
@@ -247,7 +253,20 @@ FaceFind is a web-based face recognition photo sharing application for events li
 
 **Sessions:** sessionId, eventId, faceTemplateHash, matchedPhotoIds, deviceFingerprint, phoneNumber (encrypted), whatsappConsent, createdAt, expiresAt (TTL)
 
-**Billing:** billingId, eventId, estimatedAttendees, estimatedPhotos, actualAttendees, actualPhotos, retentionDays, calculatedAmount, paymentStatus, paymentDate, paymentReference
+**Billing:** billingId, eventId, estimatedAttendees, estimatedPhotos, actualAttendees, actualPhotos, retentionDays, calculatedAmount (auto-calculated from event config), awsCostBreakdown (JSON with S3/Lambda/Rekognition/etc), retentionMultiplier, profitMargin, paymentStatus, paymentDate, paymentReference
+
+**BillingConfig:** (singleton for system-wide settings)
+- avgPhotoSizeAfterProcessingMB (default: 5)
+- avgOriginalPhotoSizeMB (default: 8)
+- thumbnailSizeMB (default: 0.2)
+- avgScansPerAttendee (default: 3)
+- avgDownloadsPerAttendee (default: 3)
+- avgPhotoViewsPerAttendee (default: 15)
+- lambdaMemoryGB (default: 0.512)
+- lambdaAvgExecutionSeconds (default: 3)
+- profitMarginPercent (default: 40)
+- processingOverhead (default: 1.2)
+- storageOverhead (default: 1.1)
 
 **AuditLogs:** logId, userId, action, resourceType, resourceId, details, timestamp
 
@@ -368,7 +387,29 @@ FaceFind is a web-based face recognition photo sharing application for events li
 - Bulk actions
 
 **Billing & Reports:**
-- Billing calculator
+- **Automatic Billing Calculator:**
+  - Real-time cost estimation during event creation
+  - Based on AWS service pricing (Mumbai ap-south-1 region)
+  - Cost components: Storage (S3), Processing (Lambda), Face Recognition (Rekognition), Database (DynamoDB), Data Transfer (CloudFront), Email (SES), Other (WAF, CloudWatch)
+  - Configurable parameters (admin settings):
+    - ⭐ Profit Margin (Default: 40%)
+    - ⭐ Average Photo Size (Default: 5MB)
+    - ⭐ Face Scans per Attendee (Default: 3)
+    - Original Photo Size, Thumbnail Size
+    - Downloads & Views per Attendee
+    - Lambda Memory & Execution Time
+    - Processing & Storage Overhead
+  - **Retention Period Tiered Pricing:**
+    - 0-7 days: 1.0x (base price)
+    - 8-14 days: 1.15x (+15%)
+    - 15-30 days: 1.30x (+30%)
+    - 31-60 days: 1.50x (+50%)
+    - 61-90 days: 1.75x (+75%)
+    - 90+ days: 2.0x (+100%)
+  - Pricing Formula: (AWS Costs × Retention Multiplier × (1 + Overhead)) + Profit Margin
+  - Displayed at bottom of event creation form
+  - Shows detailed breakdown and total to admin
+  - Settings page: /admin/settings/billing
 - Payment tracking
 - Live monitoring
 - Analytics reports
@@ -487,7 +528,8 @@ Check Events → Grace Period End: Delete Templates + Sessions + Phone Numbers �
 - POST /api/v1/admin/users/{id}/suspend
 - POST /api/v1/admin/users/{id}/reactivate
 - GET/PUT/DELETE /api/v1/admin/photos
-- POST /api/v1/admin/billing/calculate
+- GET /api/v1/admin/settings/billing (get current config)
+- PUT /api/v1/admin/settings/billing (update config)
 - GET /api/v1/admin/reports
 
 ### Organizer

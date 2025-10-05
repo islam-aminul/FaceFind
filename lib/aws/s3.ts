@@ -2,6 +2,9 @@ import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectComm
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, S3_BUCKET, S3_FOLDERS } from './config';
 
+// Re-export S3_FOLDERS for use in other modules
+export { S3_FOLDERS };
+
 export class S3Service {
   async uploadFile(
     key: string,
@@ -79,3 +82,26 @@ export class S3Service {
 }
 
 export const s3Service = new S3Service();
+
+/**
+ * Helper function to upload file to S3
+ */
+export async function uploadToS3(params: {
+  key: string;
+  body: Buffer;
+  contentType: string;
+  metadata?: Record<string, string>;
+}): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const url = await s3Service.uploadFile(
+      params.key,
+      params.body,
+      params.contentType,
+      params.metadata
+    );
+    return { success: true, url };
+  } catch (error: any) {
+    console.error('S3 upload error:', error);
+    return { success: false, error: error.message };
+  }
+}
