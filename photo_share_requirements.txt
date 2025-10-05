@@ -1,0 +1,742 @@
+# FaceFind - Face Recognition Photo Sharing Application
+## Complete Requirements Document
+
+**Tagline:** "Find Yourself in Every Event"
+
+**Version:** 1.0  
+**Date:** October 2025  
+**Status:** Final Requirements
+
+---
+
+## Table of Contents
+
+1. Executive Summary
+2. User Roles & Permissions
+3. Core Functionality
+4. Technical Architecture
+5. Security & Privacy
+6. Feature Specifications
+7. Workflows
+8. API Endpoints
+9. Testing Requirements
+10. Deployment & DevOps
+11. Documentation
+12. Compliance & Legal
+13. Launch Plan
+14. Future Enhancements
+15. Budget & Resources
+16. Risk Management
+
+---
+
+## 1. Executive Summary
+
+FaceFind is a web-based face recognition photo sharing application for events like weddings and gatherings. Attendees instantly access their photos by scanning their faces, while organizers and photographers efficiently manage event photography.
+
+**Target Scale:** 1-2 events/day, 100-500 attendees/event  
+**Technology:** AWS Amplify Gen 2  
+**Revenue:** Prepaid billing (INR)  
+**Currency:** Indian Rupees (INR)
+
+---
+
+## 2. User Roles & Permissions
+
+### 2.1 Admin
+- Created during deployment
+- Manages users, events, photographers
+- Assigns photographers to events
+- Marks events as paid
+- Content moderation (flag/hide photos)
+- Suspend/reactivate photographers with validation
+- Generate QR codes
+- Access billing and reports
+- Full system access
+
+### 2.2 Organizer
+- Created by admin only (no self-registration)
+- Invitation email with temp password
+- Profile: Name, Email, Phone, Company Name
+- View events (read-only)
+- Download all photos
+- Customize event landing page
+- Download QR code
+- No technical/admin capabilities
+- Cannot be photographer (no multi-tenancy)
+
+### 2.3 Photographer
+- Created by admin only
+- Invitation email with temp password
+- Profile: Name, Email, Phone, Portfolio URL, Specialization, Bio
+- Status: ACTIVE, SUSPENDED, INACTIVE
+- Public portfolio (stats only, no galleries)
+- Upload photos (web + Google Photos optional)
+- View/download all event photos
+- Can work multiple non-overlapping events
+- Cannot be organizer (no multi-tenancy)
+- Suspension requires all upcoming events reassigned first
+
+**Photographer Portfolio (Public):**
+- URL: facefind.com/photographer/{id}
+- Stats: Total events, photos, average, member since
+- Contact info
+- No photo galleries
+
+### 2.4 Attendees
+- No accounts (session-based)
+- Access via face scan only
+- One device at a time
+- Session active until grace period ends
+- View/download/share their photos
+- Optional WhatsApp notifications
+- Event-specific access only
+
+---
+
+## 3. Core Functionality
+
+### 3.1 Event Management
+
+**Event Creation (Admin):**
+- Required: Name, Organizer, Start/End DateTime, Location, Estimated Attendees, Max Photos, Grace Period (days), Retention Period (days), Confidence Threshold (%)
+- Optional: Logo, Watermark Elements (multi-select), Resize Dimensions, Quality, Welcome Message, Welcome Picture
+- Payment Status: PENDING → PAID (admin marks)
+- Not accessible until PAID
+
+**Event States:**
+1. CREATED - Awaiting payment
+2. PAID - Active and accessible
+3. ACTIVE - Between start/end times
+4. GRACE_PERIOD - After end, attendees can still scan
+5. DOWNLOAD_PERIOD - Grace ended, organizer/photographer only
+6. ARCHIVED - After retention, photos deleted
+
+**Photographer Assignment:**
+- Admin assigns based on organizer request (offline)
+- System validates no overlapping events
+- Multiple photographers per event allowed
+- Email notification sent
+
+**QR Code:**
+- Auto-generated per event
+- Links to: facefind.com/event/{eventId}
+- Downloadable by admin and organizer
+
+### 3.2 Photo Upload & Processing
+
+**Upload Methods:**
+1. Direct upload (drag-drop, multi-select, batch up to 100)
+2. Google Photos sync (OAuth, manual trigger, date filter)
+
+**Supported Formats:** JPEG, PNG, RAW (max 50MB)
+
+**Processing Pipeline:**
+1. Upload to S3 (original)
+2. Resize (event config)
+3. Watermark (event config elements)
+4. Face detection (AWS Rekognition)
+5. Extract face templates (encrypted)
+6. Index in event collection
+7. Goes live immediately
+8. Generate thumbnails
+9. Create pre-signed URLs (24hr expiry)
+
+**Upload Limits:**
+- Per event maximum (configurable)
+- Live counter for photographers
+- Warning at 90%
+- Hard block at 100%
+
+**Photo Management:**
+- Photographers: view all, delete own, download all
+- Admin: view all, flag/unflag, delete
+- Organizer: view all, download all (read-only)
+
+### 3.3 Face Recognition & Attendee Access
+
+**Landing Page:**
+- Event logo, welcome message, welcome picture
+- If no session: "Scan Your Face" button
+- If session exists: "View My Photos" + "Rescan Face"
+
+**Face Scanning:**
+- Device camera only (no uploads)
+- Single face detection
+- Live preview with guide overlay
+- Privacy consent required
+- Auto or manual capture
+- Processing: template → match → session → gallery
+- Confidence threshold per event
+- One device per attendee (new scan invalidates old)
+
+**Photo Gallery:**
+- Grid of matched photos
+- Multi-select for batch download/share
+- Real-time updates
+- Download (single/bulk ZIP)
+- Share (social media, native share)
+
+**Session:**
+- Active until grace period ends
+- Contains: session ID, face template hash, matched photo IDs, device fingerprint
+- Encrypted and secure
+
+### 3.4 WhatsApp Integration
+
+**Phone Number Collection:**
+- Optional after face scan
+- OTP verification
+- Consent checkbox
+- Stored encrypted until retention ends
+
+**Notifications:**
+- Initial: Compressed previews + HD download link
+- Updates: New matching photos
+- Reminder: Grace period ending (3 days before)
+- Pre-signed URLs for HD downloads
+- Opt-out: Reply STOP
+
+**Message Format:**
+- Event name
+- Photo count
+- 2-3 compressed images
+- Gallery link
+- HD download link
+
+---
+
+## 4. Technical Architecture
+
+### 4.1 Technology Stack
+
+**Frontend:**
+- AWS Amplify Gen 2 (Next.js/React)
+- Tailwind CSS
+- React Hook Form
+- WebRTC for camera
+
+**Backend (AWS):**
+- Cognito (authentication)
+- DynamoDB (database)
+- S3 (storage)
+- Lambda (serverless functions)
+- API Gateway (REST APIs)
+- Rekognition (face recognition)
+- CloudFront (CDN)
+- SES (email)
+- SNS/SQS (notifications/queues)
+- CloudWatch (monitoring)
+- EventBridge (scheduled tasks)
+- Secrets Manager (credentials)
+- WAF + Shield (security)
+
+**Integrations:**
+- WhatsApp Business API
+- Google Photos API
+
+### 4.2 Data Models
+
+**Users:** userId, email, role, firstName, lastName, phone, companyName, portfolioUrl, specialization, bio, status, createdAt
+
+**Events:** eventId, eventName, organizerId, startDateTime, endDateTime, gracePeriodDays, retentionPeriodDays, location, estimatedAttendees, maxPhotos, confidenceThreshold, photoResizeWidth, photoResizeHeight, photoQuality, watermarkElements, eventLogoUrl, welcomeMessage, welcomePictureUrl, qrCodeUrl, paymentStatus, paymentAmount, status, rekognitionCollectionId
+
+**Photos:** photoId, eventId, photographerId, originalUrl, processedUrl, thumbnailUrl, fileSize, dimensions, capturedAt, uploadedAt, status, faceCount, rekognitionFaceIds, flaggedBy, flagReason
+
+**FaceTemplates:** faceId, photoId, eventId, rekognitionFaceId, boundingBox, confidence, faceTemplateHash (encrypted), expiresAt (TTL auto-delete)
+
+**Sessions:** sessionId, eventId, faceTemplateHash, matchedPhotoIds, deviceFingerprint, phoneNumber (encrypted), whatsappConsent, createdAt, expiresAt (TTL)
+
+**Billing:** billingId, eventId, estimatedAttendees, estimatedPhotos, actualAttendees, actualPhotos, retentionDays, calculatedAmount, paymentStatus, paymentDate, paymentReference
+
+**AuditLogs:** logId, userId, action, resourceType, resourceId, details, timestamp
+
+---
+
+## 5. Security & Privacy
+
+### 5.1 Security Measures
+
+**Encryption:**
+- At rest: S3 AES-256, DynamoDB encryption
+- In transit: HTTPS/TLS 1.3
+- Face templates: SHA-256 hashed + KMS encrypted
+- Phone numbers: KMS encrypted
+- Pre-signed URLs: Time-limited
+
+**Authentication:**
+- AWS Cognito (admin, organizer, photographer)
+- Password policy: 8+ chars, upper/lower/number/special
+- Account lockout: 5 failed attempts
+- Session timeout: 24 hours
+- Optional MFA for admins
+
+**Access Control:**
+- Role-based (RBAC)
+- Least privilege
+- JWT tokens
+- API Gateway authorization
+
+**Network Security:**
+- AWS WAF
+- DDoS protection (Shield)
+- Rate limiting
+- Input validation
+- XSS/CSRF protection
+
+### 5.2 Privacy Compliance
+
+**Data Minimization:**
+- Collect only necessary data
+- No attendee accounts
+- No cross-event data
+- Face templates deleted after grace period
+- Phone numbers deleted after retention
+- Photos deleted after retention
+
+**User Rights:**
+- Access data
+- Delete data
+- Withdraw consent
+- Data portability
+
+**Consent:**
+- Face scanning consent (checkbox)
+- WhatsApp consent (separate)
+- Clear privacy notices
+- Easy opt-out
+
+**Data Retention:**
+- During event: All data active
+- Grace period end: Delete face templates, sessions
+- Retention end: Delete photos, phone numbers permanently
+
+**Automated Deletion:**
+- Daily Lambda cleanup job
+- DynamoDB TTL for auto-expiry
+- S3 lifecycle policies
+
+**Legal Documents:**
+- Privacy Policy
+- Terms of Service
+- Cookie Policy
+- Face Data Consent
+- WhatsApp Consent
+
+**Compliance:**
+- Digital Personal Data Protection Act (DPDPA) 2023
+- Indian IT Act
+- Data localization (if required)
+
+---
+
+## 6. Feature Specifications
+
+### 6.1 Admin Dashboard
+
+**Overview:**
+- Total events, active events
+- Users by role
+- Photos count, storage usage
+- Flagged content
+- Revenue metrics
+- System health
+- Recent activity feed
+
+**Event Management:**
+- List/create/edit/delete events
+- Mark as paid
+- Assign photographers (validation for overlaps)
+- Generate QR codes
+- View analytics
+- Reconfigure during event
+
+**User Management:**
+- List/create/edit users
+- Photographer suspension workflow:
+  1. Click suspend → System checks upcoming events
+  2. If events exist: Block + show list + require reassignment
+  3. Reassign all → Enable suspension
+  4. Confirm → Suspend + email notification
+- Reactivation: Enable login, no auto-reassignment, email sent
+- View user activity
+
+**Photo Management:**
+- View all photos
+- Flagged content queue
+- Flag/unflag/delete photos
+- Bulk actions
+
+**Billing & Reports:**
+- Billing calculator
+- Payment tracking
+- Live monitoring
+- Analytics reports
+- Export CSV/PDF
+
+### 6.2 Organizer Dashboard
+
+**My Events:**
+- Event cards
+- View details
+- Download QR code
+
+**Event Details:**
+- Overview: info, timeline, QR code
+- Photos: grid view, download all
+- Event Page: edit welcome message/picture, preview
+
+**Profile:**
+- Edit personal info
+- Change password
+
+### 6.3 Photographer Dashboard
+
+**My Events:**
+- List of assigned events
+- Upload progress (X/Y)
+- Quick upload
+
+**My Portfolio:**
+- View/edit bio, specialization, portfolio URL
+- View public stats
+- Public URL: facefind.com/photographer/{id}
+
+**Event Details:**
+- Photos: view all (own + others), delete own
+- Upload: direct drag-drop, Google Photos sync
+- Upload counter with warning at 90%
+- Event info
+
+**Google Photos Sync:**
+- Connect via OAuth
+- Select date range (defaults to event dates)
+- Preview and select photos
+- Manual trigger import
+- Disconnect option
+
+### 6.4 Attendee Experience
+
+**Landing Page:**
+- Event logo, welcome message/picture
+- Session check:
+  - No session: "Scan Your Face"
+  - Has session: "View My Photos" + "Rescan"
+
+**Face Scanning:**
+- Consent dialog
+- Camera permission
+- Live preview with guide
+- Auto/manual capture
+- Processing indicator
+- Error handling
+
+**Gallery:**
+- Grid of matched photos
+- Multi-select
+- Download (single/ZIP)
+- Share (social/native)
+- Real-time updates
+
+**WhatsApp Setup:**
+- Optional phone input
+- OTP verification
+- Consent checkbox
+- Notifications for new photos
+
+---
+
+## 7. Workflows
+
+### 7.1 Event Lifecycle
+CREATED → PAID (admin) → ACTIVE → GRACE_PERIOD → DOWNLOAD_PERIOD → ARCHIVED (photos deleted)
+
+### 7.2 Photo Upload
+Upload → S3 → Resize → Watermark → Face Detection → Index → Live
+
+### 7.3 Attendee Access
+Scan QR → Landing → Face Scan → Match → Session → Gallery → Download/Share
+
+### 7.4 Face Recognition
+Photo Upload → Detect Faces → Extract Templates → Index in Collection  
+Attendee Scan → Create Template → Compare → Return Matches
+
+### 7.5 Photographer Suspension
+Initiate → Check Events → If exists: Block + Require Reassignment → Reassign All → Enable Suspension → Confirm → Suspend + Email
+
+### 7.6 Data Deletion (Daily Job)
+Check Events → Grace Period End: Delete Templates + Sessions + Phone Numbers → Retention End: Delete Photos + Archive Event
+
+---
+
+## 8. API Endpoints
+
+### Authentication
+- POST /api/v1/auth/login
+- POST /api/v1/auth/logout
+- POST /api/v1/auth/refresh-token
+- POST /api/v1/auth/forgot-password
+- POST /api/v1/auth/reset-password
+
+### Admin
+- GET /api/v1/admin/dashboard/stats
+- GET/POST/PUT/DELETE /api/v1/admin/events
+- POST /api/v1/admin/events/{id}/mark-paid
+- GET /api/v1/admin/events/{id}/qr-code
+- GET/POST/PUT/DELETE /api/v1/admin/users
+- POST /api/v1/admin/users/{id}/suspend
+- POST /api/v1/admin/users/{id}/reactivate
+- GET/PUT/DELETE /api/v1/admin/photos
+- POST /api/v1/admin/billing/calculate
+- GET /api/v1/admin/reports
+
+### Organizer
+- GET /api/v1/organizer/events
+- GET /api/v1/organizer/events/{id}
+- PUT /api/v1/organizer/events/{id}/landing-page
+- GET /api/v1/organizer/events/{id}/photos
+- GET /api/v1/organizer/events/{id}/download-all
+
+### Photographer
+- GET /api/v1/photographer/events
+- GET /api/v1/photographer/events/{id}
+- POST /api/v1/photographer/events/{id}/photos
+- DELETE /api/v1/photographer/photos/{id}
+- GET /api/v1/photographer/photos
+- GET /api/v1/photographer/upload-stats/{id}
+- POST /api/v1/photographer/google-photos/connect
+- POST /api/v1/photographer/google-photos/sync
+- GET/PUT /api/v1/photographer/portfolio
+
+### Attendee/Public
+- GET /api/v1/events/{id}/landing
+- POST /api/v1/events/{id}/scan-face
+- GET /api/v1/events/{id}/my-photos
+- POST /api/v1/events/{id}/rescan
+- POST /api/v1/events/{id}/whatsapp-subscribe
+- GET /api/v1/photos/{id}
+- GET /api/v1/photos/{id}/download
+- POST /api/v1/photos/download-bulk
+- GET /api/v1/photographer/{id}/portfolio (public)
+
+---
+
+## 9. Testing Requirements
+
+### 9.1 Unit Testing
+- Lambda functions
+- API handlers
+- Face recognition logic
+- Billing calculations
+- Validation functions
+- Target: 80% coverage
+
+### 9.2 Integration Testing
+- End-to-end workflows
+- AWS services integration
+- Third-party APIs (WhatsApp, Google)
+- Database operations
+
+### 9.3 Performance Testing
+- 500+ concurrent attendees
+- Face recognition <5 seconds
+- API response <500ms
+- Photo upload batches
+
+### 9.4 Security Testing
+- Penetration testing
+- Vulnerability scanning
+- OWASP Top 10
+- Authentication/authorization
+- Data encryption verification
+
+### 9.5 User Acceptance Testing
+- All user roles
+- Various devices/browsers
+- Camera testing
+- Different lighting conditions
+
+### 9.6 Face Recognition Accuracy
+- Diverse faces and conditions
+- Target: >95% accuracy
+- <1% false positive rate
+- Threshold optimization
+
+---
+
+## 10. Deployment & DevOps
+
+### 10.1 Environments
+- Development: dev.facefind.com
+- Staging: staging.facefind.com
+- Production: facefind.com
+
+### 10.2 CI/CD Pipeline
+- Git: main (prod), staging, develop branches
+- Auto-deploy to dev on merge
+- Manual approval for staging/prod
+- Blue-green deployment
+- Rollback capability
+
+### 10.3 Monitoring
+- CloudWatch dashboards
+- Metrics: API, face recognition, uploads, errors
+- Alarms: Critical (immediate), High (1hr), Medium (24hr)
+- On-call rotation
+
+### 10.4 Backup & Recovery
+- DynamoDB PITR (35 days)
+- S3 versioning
+- Daily snapshots
+- RTO: 4 hours, RPO: 24 hours
+- Quarterly DR drills
+
+---
+
+## 11. Documentation
+
+### Technical
+- Architecture diagrams
+- API documentation
+- Database schema
+- Infrastructure docs
+- Deployment procedures
+
+### User
+- Admin guide
+- Organizer guide
+- Photographer guide
+- Attendee help
+- FAQs
+
+### Developer
+- Setup guide
+- Code standards
+- Contributing guide
+
+---
+
+## 12. Compliance & Legal
+
+### Documents Required
+- Privacy Policy
+- Terms of Service
+- Cookie Policy
+- Face Data Consent
+- WhatsApp Consent
+
+### Compliance
+- DPDPA 2023 (India)
+- Indian IT Act
+- Data localization
+- User rights implementation
+
+---
+
+## 13. Launch Plan
+
+### Pre-Launch Checklist
+- [ ] All features complete
+- [ ] Security audit
+- [ ] Performance testing
+- [ ] Backup tested
+- [ ] Monitoring configured
+- [ ] Legal documents finalized
+- [ ] Support process defined
+
+### Launch Strategy
+- Soft launch (5-10 events, 2-4 weeks)
+- Public launch with marketing
+- Close monitoring
+
+### Success Metrics
+- Uptime >99.5%
+- Face recognition >95%
+- Error rate <1%
+- User satisfaction (NPS)
+
+---
+
+## 14. Future Enhancements
+
+### Phase 2
+- Native mobile apps (iOS/Android)
+- Video support
+- AI photo enhancement
+- Advanced analytics
+- Photo commenting/reactions
+
+### Phase 3
+- Photographer marketplace
+- Photo printing integration
+- White-label solutions
+- API for third-parties
+- Multi-language support
+
+---
+
+## 15. Budget & Resources
+
+### Development (6 months)
+- Full-stack Developer
+- Frontend Developer
+- Backend Developer
+- UI/UX Designer
+- QA Engineer
+- DevOps Engineer
+- Project Manager
+
+### Operational (Monthly)
+- AWS Services: ₹70,000-150,000
+- WhatsApp API: ₹10,000-30,000
+- Support: Part-time
+- Total: ₹70,000-200,000/month (varies with scale)
+
+### Revenue Model (Suggested)
+- Base: ₹15,000 (200 attendees, 500 photos)
+- Standard: ₹25,000 (400 attendees, 1000 photos)
+- Premium: ₹40,000 (600 attendees, 2000 photos)
+- Enterprise: Custom
+
+---
+
+## 16. Risk Management
+
+### Technical Risks
+- Face recognition accuracy → Extensive testing, fallbacks
+- System downtime → HA architecture, monitoring
+- Storage costs → Lifecycle policies, optimization
+
+### Business Risks
+- Low adoption → Beta testing, marketing
+- Competition → Differentiation, excellent service
+- Seasonal demand → Diversify events, flexible pricing
+
+### Legal Risks
+- Privacy violations → Strict compliance, audits
+- Regulation changes → Monitor, flexible architecture
+
+---
+
+## Conclusion
+
+FaceFind revolutionizes event photo sharing with face recognition technology. This document provides complete specifications for a 6-month development timeline, targeting initial launch with 1-2 events/day capacity, scaling to handle larger volumes.
+
+**Next Steps:**
+1. Secure resources
+2. Assemble team
+3. AWS setup
+4. Development (6 months)
+5. Beta testing (1 month)
+6. Public launch
+7. Iterate and scale
+
+---
+
+**Document Version:** 1.0  
+**Date:** October 2025  
+**Status:** Final - Ready for Development  
+**Application Name:** FaceFind  
+**Tagline:** Find Yourself in Every Event
+
+**END OF DOCUMENT**
