@@ -66,7 +66,7 @@ export async function POST(
 
     // Create canvas with event information
     const canvasWidth = 600;
-    const canvasHeight = 700;
+    const canvasHeight = 750;
     const canvas = createCanvas(canvasWidth, canvasHeight);
     const ctx = canvas.getContext('2d');
 
@@ -80,47 +80,60 @@ export async function POST(
 
     // Title
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 28px Arial';
+    ctx.font = 'bold 28px "Courier New", monospace';
     ctx.textAlign = 'center';
     ctx.fillText('FaceFind Event', canvasWidth / 2, 50);
 
-    // Event name
+    // Event name (monospaced font)
     ctx.fillStyle = '#1F2937'; // Dark gray
-    ctx.font = 'bold 24px Arial';
+    ctx.font = 'bold 22px "Courier New", monospace';
     ctx.textAlign = 'center';
-    const eventName = event.eventName.length > 30
-      ? event.eventName.substring(0, 27) + '...'
+    const eventName = event.eventName.length > 35
+      ? event.eventName.substring(0, 32) + '...'
       : event.eventName;
-    ctx.fillText(eventName, canvasWidth / 2, 130);
+    ctx.fillText(eventName, canvasWidth / 2, 125);
 
-    // Event details
-    ctx.font = '18px Arial';
+    // Event date (monospaced font)
+    ctx.font = '18px "Courier New", monospace';
     ctx.fillStyle = '#4B5563'; // Gray
     const eventDate = new Date(event.startDateTime).toLocaleDateString('en-US', {
       year: 'numeric',
-      month: 'long',
+      month: 'short',
       day: 'numeric'
     });
-    ctx.fillText(eventDate, canvasWidth / 2, 165);
+    ctx.fillText(eventDate, canvasWidth / 2, 155);
+
+    // Event ID (monospaced font)
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillStyle = '#6B7280';
+    const displayId = `ID: ${id.substring(0, 8)}...${id.substring(id.length - 4)}`;
+    ctx.fillText(displayId, canvasWidth / 2, 180);
 
     if (event.location) {
       const location = event.location.length > 40
         ? event.location.substring(0, 37) + '...'
         : event.location;
-      ctx.fillText(location, canvasWidth / 2, 190);
+      ctx.font = '16px "Courier New", monospace';
+      ctx.fillStyle = '#6B7280';
+      ctx.fillText(location, canvasWidth / 2, 205);
     }
 
     // QR Code
     const qrImage = await loadImage(qrCodeDataUrl);
     const qrX = (canvasWidth - 400) / 2;
-    const qrY = 220;
+    const qrY = event.location ? 230 : 210;
     ctx.drawImage(qrImage, qrX, qrY, 400, 400);
 
-    // Footer text
+    // Footer text (monospaced)
     ctx.fillStyle = '#6B7280';
-    ctx.font = '16px Arial';
+    ctx.font = '16px "Courier New", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Scan to find your photos', canvasWidth / 2, 650);
+    ctx.fillText('Scan to find your photos', canvasWidth / 2, event.location ? 670 : 650);
+
+    // Full Event ID at bottom (for reference)
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = '#9CA3AF';
+    ctx.fillText(`Event ID: ${id}`, canvasWidth / 2, event.location ? 700 : 680);
 
     // Convert canvas to buffer
     const buffer = canvas.toBuffer('image/png');
