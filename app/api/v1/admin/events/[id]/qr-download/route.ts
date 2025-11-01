@@ -52,6 +52,11 @@ export async function GET(
     } else {
       // New format - S3 key, generate presigned URL
       presignedUrl = await s3Service.getPresignedUrl(event.qrCodeUrl, 3600);
+
+      // Add cache-busting parameter to force browser reload
+      const cacheBuster = event.updatedAt ? new Date(event.updatedAt).getTime() : Date.now();
+      const separator = presignedUrl.includes('?') ? '&' : '?';
+      presignedUrl = `${presignedUrl}${separator}v=${cacheBuster}`;
     }
 
     return NextResponse.json({
