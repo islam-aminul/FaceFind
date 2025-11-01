@@ -75,17 +75,26 @@ export default function EventEditPage() {
 
   // Calculate billing estimate whenever relevant fields change
   useEffect(() => {
-    if (formData.estimatedAttendees && formData.maxPhotos && formData.retentionPeriodDays) {
-      const estimate = calculateEventBilling({
-        estimatedAttendees: formData.estimatedAttendees,
-        maxPhotos: formData.maxPhotos,
-        retentionPeriodDays: formData.retentionPeriodDays,
-        confidenceThreshold: formData.confidenceThreshold,
-        photoResizeWidth: formData.photoResizeWidth,
-        photoResizeHeight: formData.photoResizeHeight,
-      });
-      setBillingEstimate(estimate);
-    }
+    const calculateBilling = async () => {
+      if (formData.estimatedAttendees && formData.maxPhotos && formData.retentionPeriodDays) {
+        try {
+          const estimate = await calculateEventBilling({
+            estimatedAttendees: formData.estimatedAttendees,
+            maxPhotos: formData.maxPhotos,
+            retentionPeriodDays: formData.retentionPeriodDays,
+            confidenceThreshold: formData.confidenceThreshold,
+            photoResizeWidth: formData.photoResizeWidth,
+            photoResizeHeight: formData.photoResizeHeight,
+          });
+          setBillingEstimate(estimate);
+        } catch (error) {
+          console.error('Failed to calculate billing estimate:', error);
+          setBillingEstimate(null);
+        }
+      }
+    };
+
+    calculateBilling();
   }, [
     formData.estimatedAttendees,
     formData.maxPhotos,
