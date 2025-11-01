@@ -54,6 +54,7 @@ export default function EventDetailsPage() {
   const [marking, setMarking] = useState(false);
   const [generatingQR, setGeneratingQR] = useState(false);
   const [qrCodePresignedUrl, setQrCodePresignedUrl] = useState<string | null>(null);
+  const [qrCodeTimestamp, setQrCodeTimestamp] = useState<string | null>(null);
 
   // Photographer assignment states
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -102,6 +103,7 @@ export default function EventDetailsPage() {
       if (response.ok) {
         const data = await response.json();
         setQrCodePresignedUrl(data.url);
+        setQrCodeTimestamp(data.timestamp);
       } else if (response.status === 400) {
         // Old format detected, show message
         const error = await response.json();
@@ -760,7 +762,12 @@ export default function EventDetailsPage() {
                 <div className="text-center">
                   {qrCodePresignedUrl ? (
                     <>
-                      <img src={qrCodePresignedUrl} alt="QR Code" className="mx-auto mb-3 max-w-xs" />
+                      <img
+                        src={qrCodePresignedUrl}
+                        alt="QR Code"
+                        className="mx-auto mb-3 max-w-xs"
+                        key={qrCodeTimestamp || Date.now()}
+                      />
                       <button
                         onClick={handleDownloadQR}
                         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
