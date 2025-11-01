@@ -83,12 +83,6 @@ export default function EventsPage() {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const getPaymentBadge = (status: string) => {
-    return status === 'PAID'
-      ? 'bg-green-100 text-green-800'
-      : 'bg-orange-100 text-orange-800';
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -156,13 +150,13 @@ export default function EventsPage() {
                     <h3 className="text-xl font-bold text-gray-900 mb-2">{event.eventName}</h3>
                     <p className="text-gray-600 text-sm">📍 {event.location}</p>
                   </div>
-                  <div className="flex gap-2">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getPaymentBadge(event.paymentStatus)}`}>
-                      {event.paymentStatus}
-                    </span>
+                  <div className="flex gap-2 items-center">
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(event.status)}`}>
                       {event.status}
                     </span>
+                    {event.paymentStatus === 'PENDING' && (
+                      <span className="text-xs text-orange-600 font-medium">💳 Payment Pending</span>
+                    )}
                   </div>
                 </div>
 
