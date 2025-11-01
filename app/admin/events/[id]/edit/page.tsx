@@ -66,6 +66,10 @@ export default function EventEditPage() {
   const [welcomePreview, setWelcomePreview] = useState<string>('');
   const [welcomeUploading, setWelcomeUploading] = useState(false);
 
+  // QR code regeneration
+  const [regenerateQRCode, setRegenerateQRCode] = useState(false);
+  const [hasQRCode, setHasQRCode] = useState(false);
+
   const [modal, setModal] = useState<{
     isOpen: boolean;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -156,6 +160,11 @@ export default function EventEditPage() {
           welcomePictureUrl: event.welcomePictureUrl || '',
         });
         setOriginalOrganizerId(event.organizerId);
+
+        // Check if QR code exists
+        if (event.qrCodeUrl) {
+          setHasQRCode(true);
+        }
 
         // Set existing image previews
         if (event.eventLogoUrl) {
@@ -382,11 +391,38 @@ export default function EventEditPage() {
       });
 
       if (response.ok) {
+        // Regenerate QR code if requested
+        if (regenerateQRCode) {
+          try {
+            const qrResponse = await fetch(`/api/v1/admin/events/${eventId}/generate-qr`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
+
+            if (!qrResponse.ok) {
+              console.error('QR code regeneration failed');
+              setModal({
+                isOpen: true,
+                type: 'warning',
+                title: 'Partial Success',
+                message: 'Event updated but QR code regeneration failed. You can regenerate it from the event details page.',
+              });
+              setTimeout(() => router.push(`/admin/events/${eventId}`), 2000);
+              return;
+            }
+          } catch (qrError) {
+            console.error('QR code regeneration error:', qrError);
+          }
+        }
+
         setModal({
           isOpen: true,
           type: 'success',
           title: 'Success',
-          message: 'Event updated successfully!',
+          message: regenerateQRCode ? 'Event updated and QR code regenerated successfully!' : 'Event updated successfully!',
         });
         setTimeout(() => router.push(`/admin/events/${eventId}`), 1500);
       } else {
@@ -739,6 +775,30 @@ export default function EventEditPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
                 />
               </div>
+
+              {/* QR Code Regeneration */}
+              {hasQRCode && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <label className="flex items-start space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={regenerateQRCode}
+                      onChange={(e) => setRegenerateQRCode(e.target.checked)}
+                      className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 flex items-center gap-2">
+                        <span>🔄</span>
+                        <span>Regenerate QR Code</span>
+                      </div>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Check this to regenerate the QR code with updated event details (name, date, location).
+                        The old QR code will be replaced automatically.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 
