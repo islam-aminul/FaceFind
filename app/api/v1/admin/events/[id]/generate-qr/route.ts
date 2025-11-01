@@ -66,7 +66,7 @@ export async function POST(
 
     // Create canvas with event information
     const canvasWidth = 600;
-    const canvasHeight = 720;
+    const canvasHeight = 750;
     const canvas = createCanvas(canvasWidth, canvasHeight);
     const ctx = canvas.getContext('2d');
 
@@ -122,12 +122,26 @@ export async function POST(
     ctx.fillStyle = '#6B7280';
     ctx.font = '16px "Courier New", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Scan to find your photos', canvasWidth / 2, event.location ? 645 : 625);
+    ctx.fillText('Scan to find your photos', canvasWidth / 2, event.location ? 640 : 620);
 
-    // Full Event ID at bottom (for reference)
-    ctx.font = '11px "Courier New", monospace';
-    ctx.fillStyle = '#9CA3AF';
-    ctx.fillText(`Event ID: ${id}`, canvasWidth / 2, event.location ? 675 : 655);
+    // Footer bar (matching header style)
+    ctx.fillStyle = '#2563EB'; // Blue
+    ctx.fillRect(0, canvasHeight - 80, canvasWidth, 80);
+
+    // Full Event ID at bottom (matching header style)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    // Split ID into two lines if too long
+    if (id.length > 36) {
+      const midPoint = Math.floor(id.length / 2);
+      const line1 = id.substring(0, midPoint);
+      const line2 = id.substring(midPoint);
+      ctx.fillText(line1, canvasWidth / 2, canvasHeight - 50);
+      ctx.fillText(line2, canvasWidth / 2, canvasHeight - 25);
+    } else {
+      ctx.fillText(id, canvasWidth / 2, canvasHeight - 40);
+    }
 
     // Convert canvas to buffer
     const buffer = canvas.toBuffer('image/png');
