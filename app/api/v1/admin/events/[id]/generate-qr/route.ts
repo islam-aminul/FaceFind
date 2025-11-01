@@ -66,7 +66,7 @@ export async function POST(
 
     // Create canvas with event information
     const canvasWidth = 600;
-    const canvasHeight = 750;
+    const canvasHeight = 720;
     const canvas = createCanvas(canvasWidth, canvasHeight);
     const ctx = canvas.getContext('2d');
 
@@ -103,37 +103,31 @@ export async function POST(
     });
     ctx.fillText(eventDate, canvasWidth / 2, 155);
 
-    // Event ID (monospaced font)
-    ctx.font = 'bold 14px "Courier New", monospace';
-    ctx.fillStyle = '#6B7280';
-    const displayId = `ID: ${id.substring(0, 8)}...${id.substring(id.length - 4)}`;
-    ctx.fillText(displayId, canvasWidth / 2, 180);
-
     if (event.location) {
       const location = event.location.length > 40
         ? event.location.substring(0, 37) + '...'
         : event.location;
       ctx.font = '16px "Courier New", monospace';
       ctx.fillStyle = '#6B7280';
-      ctx.fillText(location, canvasWidth / 2, 205);
+      ctx.fillText(location, canvasWidth / 2, 180);
     }
 
     // QR Code
     const qrImage = await loadImage(qrCodeDataUrl);
     const qrX = (canvasWidth - 400) / 2;
-    const qrY = event.location ? 230 : 210;
+    const qrY = event.location ? 205 : 185;
     ctx.drawImage(qrImage, qrX, qrY, 400, 400);
 
     // Footer text (monospaced)
     ctx.fillStyle = '#6B7280';
     ctx.font = '16px "Courier New", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Scan to find your photos', canvasWidth / 2, event.location ? 670 : 650);
+    ctx.fillText('Scan to find your photos', canvasWidth / 2, event.location ? 645 : 625);
 
     // Full Event ID at bottom (for reference)
     ctx.font = '11px "Courier New", monospace';
     ctx.fillStyle = '#9CA3AF';
-    ctx.fillText(`Event ID: ${id}`, canvasWidth / 2, event.location ? 700 : 680);
+    ctx.fillText(`Event ID: ${id}`, canvasWidth / 2, event.location ? 675 : 655);
 
     // Convert canvas to buffer
     const buffer = canvas.toBuffer('image/png');
