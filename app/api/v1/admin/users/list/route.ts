@@ -3,7 +3,9 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import '@/lib/amplify-config';
 
-const client = generateClient<Schema>();
+const client = generateClient<Schema>({
+  authMode: 'apiKey',
+});
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +16,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const role = searchParams.get('role');
+    const status = searchParams.get('status');
 
     // Fetch all users
     const result = await client.models.User.list();
@@ -31,6 +34,11 @@ export async function GET(request: NextRequest) {
     // Filter by role if specified
     if (role) {
       users = users.filter(u => u.role === role);
+    }
+
+    // Filter by status if specified
+    if (status) {
+      users = users.filter(u => u.status === status);
     }
 
     // Sort by creation date (newest first)

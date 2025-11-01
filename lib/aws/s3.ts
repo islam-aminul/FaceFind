@@ -5,6 +5,12 @@ import { s3Client, S3_BUCKET, S3_FOLDERS } from './config';
 // Re-export S3_FOLDERS for use in other modules
 export { S3_FOLDERS };
 
+export interface PresignedUploadUrl {
+  uploadUrl: string;
+  key: string;
+  photoId: string;
+}
+
 export class S3Service {
   async uploadFile(
     key: string,
@@ -12,18 +18,23 @@ export class S3Service {
     contentType: string,
     metadata?: Record<string, string>
   ): Promise<string> {
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-        Body: body,
-        ContentType: contentType,
-        Metadata: metadata,
-        ServerSideEncryption: 'AES256',
-      })
-    );
+    try {
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+          Metadata: metadata,
+          ServerSideEncryption: 'AES256',
+        })
+      );
 
-    return `https://${S3_BUCKET}.s3.amazonaws.com/${key}`;
+      return `https://${S3_BUCKET}.s3.amazonaws.com/${key}`;
+    } catch (error: any) {
+      console.error('S3 upload error in uploadFile:', error);
+      throw new Error(`S3 upload failed: ${error.message}`);
+    }
   }
 
   async getPresignedUrl(key: string, expiresIn: number = 86400): Promise<string> {
@@ -78,6 +89,71 @@ export class S3Service {
 
   generateEventAssetKey(eventId: string, assetType: 'logo' | 'welcome', filename: string): string {
     return `${S3_FOLDERS.EVENT_ASSETS}/${eventId}/${assetType}/${filename}`;
+  }
+
+  /**
+   * Generate presigned URL for photo upload
+   * Allows frontend to upload directly to S3
+   */
+  async getPresignedUploadUrl(
+    eventId: string,
+    photoId: string,
+    filename: string,
+    contentType: string,
+    expiresIn: number = 3600
+  ): Promise<PresignedUploadUrl> {
+    const extension = filename.split('.').pop()?.toLowerCase() || 'jpg';
+    const key = this.generatePhotoKey(eventId, photoId, S3_FOLDERS.ORIGINALS, extension);
+
+    const command = new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      ContentType: contentType,
+      ServerSideEncryption: 'AES256',
+      Metadata: {
+        eventId,
+        photoId,
+        originalFilename: filename,
+      },
+    });
+
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
+
+    return {
+      uploadUrl,
+      key,
+      photoId,
+    };
+  }
+
+  /**
+   * Generate multiple presigned URLs for batch upload
+   */
+  async getPresignedUploadUrls(
+    eventId: string,
+    files: Array<{ filename: string; contentType: string }>
+  ): Promise<PresignedUploadUrl[]> {
+    const urls = [];
+
+    for (const file of files) {
+      const photoId = crypto.randomUUID();
+      const url = await this.getPresignedUploadUrl(
+        eventId,
+        photoId,
+        file.filename,
+        file.contentType
+      );
+      urls.push(url);
+    }
+
+    return urls;
+  }
+
+  /**
+   * Get public URL for a photo
+   */
+  getPublicUrl(key: string): string {
+    return `https://${S3_BUCKET}.s3.amazonaws.com/${key}`;
   }
 }
 

@@ -4,8 +4,11 @@ import type { Schema } from '@/amplify/data/resource';
 import '@/lib/amplify-config';
 import QRCode from 'qrcode';
 import { uploadToS3 } from '@/lib/aws/s3';
+import { createCanvas, loadImage } from 'canvas';
 
-const client = generateClient<Schema>();
+const client = generateClient<Schema>({
+  authMode: 'apiKey',
+});
 
 export async function POST(
   request: NextRequest,
@@ -31,31 +34,96 @@ export async function POST(
 
     const event = eventResult.data;
 
-    // Check if QR code already exists
-    if (event.qrCodeUrl) {
-      return NextResponse.json({
-        success: true,
-        qrCodeUrl: event.qrCodeUrl,
-        message: 'QR code already exists',
-      });
+    // Check if QR code already exists with new format (S3 key)
+    if (event.qrCodeUrl && !event.qrCodeUrl.startsWith('http')) {
+      // QR code exists in new format with S3 key
+      // Verify the file exists in S3
+      const s3 = new (await import('@/lib/aws/s3')).S3Service();
+      const exists = await s3.fileExists(event.qrCodeUrl);
+
+      if (exists) {
+        return NextResponse.json({
+          success: true,
+          s3Key: event.qrCodeUrl,
+          message: 'QR code already exists',
+        });
+      }
+      // If file doesn't exist, regenerate below
     }
 
-    // Generate QR code URL
+    // Generate QR code URL (either first time or regenerating)
     const eventUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://facefind.com'}/event/${id}`;
 
     // Generate QR code as data URL
     const qrCodeDataUrl = await QRCode.toDataURL(eventUrl, {
-      width: 512,
-      margin: 2,
+      width: 400,
+      margin: 1,
       color: {
         dark: '#000000',
         light: '#FFFFFF',
       },
     });
 
-    // Convert data URL to buffer
-    const base64Data = qrCodeDataUrl.replace(/^data:image\/png;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
+    // Create canvas with event information
+    const canvasWidth = 600;
+    const canvasHeight = 700;
+    const canvas = createCanvas(canvasWidth, canvasHeight);
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    // Header
+    ctx.fillStyle = '#2563EB'; // Blue
+    ctx.fillRect(0, 0, canvasWidth, 80);
+
+    // Title
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 28px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('FaceFind Event', canvasWidth / 2, 50);
+
+    // Event name
+    ctx.fillStyle = '#1F2937'; // Dark gray
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    const eventName = event.eventName.length > 30
+      ? event.eventName.substring(0, 27) + '...'
+      : event.eventName;
+    ctx.fillText(eventName, canvasWidth / 2, 130);
+
+    // Event details
+    ctx.font = '18px Arial';
+    ctx.fillStyle = '#4B5563'; // Gray
+    const eventDate = new Date(event.startDateTime).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    ctx.fillText(eventDate, canvasWidth / 2, 165);
+
+    if (event.location) {
+      const location = event.location.length > 40
+        ? event.location.substring(0, 37) + '...'
+        : event.location;
+      ctx.fillText(location, canvasWidth / 2, 190);
+    }
+
+    // QR Code
+    const qrImage = await loadImage(qrCodeDataUrl);
+    const qrX = (canvasWidth - 400) / 2;
+    const qrY = 220;
+    ctx.drawImage(qrImage, qrX, qrY, 400, 400);
+
+    // Footer text
+    ctx.fillStyle = '#6B7280';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Scan to find your photos', canvasWidth / 2, 650);
+
+    // Convert canvas to buffer
+    const buffer = canvas.toBuffer('image/png');
 
     // Upload to S3
     const s3Key = `qr-codes/${id}.png`;
@@ -66,16 +134,17 @@ export async function POST(
     });
 
     if (!uploadResult.success) {
+      console.error('S3 upload failed:', uploadResult.error);
       return NextResponse.json(
-        { error: 'Failed to upload QR code to S3' },
+        { error: 'Failed to upload QR code to S3', details: uploadResult.error },
         { status: 500 }
       );
     }
 
-    // Update event with QR code URL
+    // Update event with QR code URL (S3 path)
     const updateResult = await client.models.Event.update({
       id,
-      qrCodeUrl: uploadResult.url,
+      qrCodeUrl: s3Key, // Store the S3 key instead of full URL
     });
 
     if (updateResult.errors) {
@@ -89,6 +158,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       qrCodeUrl: uploadResult.url,
+      s3Key,
       eventUrl,
       message: 'QR code generated successfully',
     });

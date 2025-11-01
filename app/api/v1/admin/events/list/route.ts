@@ -3,7 +3,9 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import '@/lib/amplify-config';
 
-const client = generateClient<Schema>();
+const client = generateClient<Schema>({
+  authMode: 'apiKey',
+});
 
 export async function GET(request: NextRequest) {
   try {

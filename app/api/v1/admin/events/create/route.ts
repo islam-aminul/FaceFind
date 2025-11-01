@@ -3,8 +3,11 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import '@/lib/amplify-config';
 import { calculateEventBilling } from '@/lib/utils/billing-calculator';
+import { settingsService } from '@/lib/services/settings-service';
 
-const client = generateClient<Schema>();
+const client = generateClient<Schema>({
+  authMode: 'apiKey',
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,26 +39,36 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!eventName || !organizerId || !startDateTime || !endDateTime || !location) {
+      console.error('Missing required fields:', { eventName, organizerId, startDateTime, endDateTime, location });
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        {
+          error: 'Missing required fields',
+          received: { eventName: !!eventName, organizerId: !!organizerId, startDateTime: !!startDateTime, endDateTime: !!endDateTime, location: !!location }
+        },
         { status: 400 }
       );
     }
 
+    // Get default configurations from settings
+    const [faceRecognitionConfig, systemConfig] = await Promise.all([
+      settingsService.getFaceRecognitionConfig(),
+      settingsService.getSystemConfig(),
+    ]);
+
     // Calculate billing automatically
-    const billing = calculateEventBilling({
+    const billing = await calculateEventBilling({
       estimatedAttendees: estimatedAttendees || 100,
       maxPhotos: maxPhotos || 500,
-      retentionPeriodDays: retentionPeriodDays || 7,
-      confidenceThreshold: confidenceThreshold || 85,
+      retentionPeriodDays: retentionPeriodDays || systemConfig.defaultRetentionPeriodDays,
+      confidenceThreshold: confidenceThreshold || faceRecognitionConfig.defaultConfidenceThreshold,
       photoResizeWidth: photoResizeWidth || 2560,
       photoResizeHeight: photoResizeHeight || 1440,
     });
 
-    // Generate Rekognition collection ID
-    const rekognitionCollectionId = `event-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    // Generate Rekognition collection ID with configured prefix
+    const rekognitionCollectionId = `${faceRecognitionConfig.collectionPrefix}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-    // Create event in database
+    // Create event in database with settings-based defaults
     const result = await client.models.Event.create({
       eventName,
       organizerId,
@@ -64,9 +77,9 @@ export async function POST(request: NextRequest) {
       location,
       estimatedAttendees: estimatedAttendees || 100,
       maxPhotos: maxPhotos || 500,
-      gracePeriodDays: Math.ceil((gracePeriodHours || 3) / 24), // Store as days but accept hours
-      retentionPeriodDays: retentionPeriodDays || 7,
-      confidenceThreshold: confidenceThreshold || 85,
+      gracePeriodDays: Math.ceil((gracePeriodHours || systemConfig.defaultGracePeriodHours) / 24), // Store as days but accept hours
+      retentionPeriodDays: retentionPeriodDays || systemConfig.defaultRetentionPeriodDays,
+      confidenceThreshold: confidenceThreshold || faceRecognitionConfig.defaultConfidenceThreshold,
       photoResizeWidth: photoResizeWidth || 2560,
       photoResizeHeight: photoResizeHeight || 1440,
       photoQuality: photoQuality || 85,

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
+import { calculateEventBilling, formatINR } from '@/lib/utils/billing-calculator';
+import Modal from '@/components/Modal';
 
 interface FormData {
   eventName: string;
@@ -50,8 +52,46 @@ export default function EventEditPage() {
   });
 
   const [originalOrganizerId, setOriginalOrganizerId] = useState('');
+  const [organizerName, setOrganizerName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [billingEstimate, setBillingEstimate] = useState<any>(null);
+
+  // File upload states
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string>('');
+  const [logoUploading, setLogoUploading] = useState(false);
+
+  const [welcomeFile, setWelcomeFile] = useState<File | null>(null);
+  const [welcomePreview, setWelcomePreview] = useState<string>('');
+  const [welcomeUploading, setWelcomeUploading] = useState(false);
+
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    type: 'success' | 'error' | 'warning' | 'info';
+    title: string;
+    message: string;
+  } | null>(null);
+
+  // Calculate billing estimate whenever relevant fields change
+  useEffect(() => {
+    if (formData.estimatedAttendees && formData.maxPhotos && formData.retentionPeriodDays) {
+      const estimate = calculateEventBilling({
+        estimatedAttendees: formData.estimatedAttendees,
+        maxPhotos: formData.maxPhotos,
+        retentionPeriodDays: formData.retentionPeriodDays,
+        confidenceThreshold: formData.confidenceThreshold,
+        photoResizeWidth: formData.photoResizeWidth,
+        photoResizeHeight: formData.photoResizeHeight,
+      });
+      setBillingEstimate(estimate);
+    }
+  }, [
+    formData.estimatedAttendees,
+    formData.maxPhotos,
+    formData.retentionPeriodDays,
+    formData.confidenceThreshold,
+  ]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -82,6 +122,7 @@ export default function EventEditPage() {
       if (response.ok) {
         const data = await response.json();
         const event = data.event;
+        const organizer = data.organizer;
 
         // Convert gracePeriodDays to hours for the form
         const gracePeriodHours = event.gracePeriodDays * 24;
@@ -106,15 +147,140 @@ export default function EventEditPage() {
           welcomePictureUrl: event.welcomePictureUrl || '',
         });
         setOriginalOrganizerId(event.organizerId);
+
+        // Set existing image previews
+        if (event.eventLogoUrl) {
+          setLogoPreview(event.eventLogoUrl);
+        }
+        if (event.welcomePictureUrl) {
+          setWelcomePreview(event.welcomePictureUrl);
+        }
+
+        // Set organizer name for display
+        if (organizer) {
+          const name = `${organizer.firstName || ''} ${organizer.lastName || ''}`.trim() || organizer.email || event.organizerId;
+          setOrganizerName(name);
+        } else {
+          setOrganizerName(event.organizerId);
+        }
       } else {
-        alert('Failed to fetch event details');
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Error',
+          message: 'Failed to fetch event details',
+        });
         router.push('/admin/events');
       }
     } catch (error) {
       console.error('Failed to fetch event details:', error);
-      alert('Failed to fetch event details');
+      setModal({
+        isOpen: true,
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to fetch event details',
+      });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Invalid File Type',
+          message: 'Only JPG, JPEG, and PNG files are allowed',
+        });
+        return;
+      }
+
+      // Validate file size (5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'File Too Large',
+          message: 'File size must be less than 5MB',
+        });
+        return;
+      }
+
+      setLogoFile(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleWelcomeFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Invalid File Type',
+          message: 'Only JPG, JPEG, and PNG files are allowed',
+        });
+        return;
+      }
+
+      // Validate file size (5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'File Too Large',
+          message: 'File size must be less than 5MB',
+        });
+        return;
+      }
+
+      setWelcomeFile(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setWelcomePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadEventAsset = async (file: File, assetType: 'logo' | 'welcome'): Promise<string | null> => {
+    try {
+      const formDataToUpload = new FormData();
+      formDataToUpload.append('file', file);
+      formDataToUpload.append('eventId', eventId);
+      formDataToUpload.append('assetType', assetType);
+
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/v1/admin/events/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formDataToUpload,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.url;
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || 'Upload failed');
+      }
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      throw error;
     }
   };
 
@@ -143,10 +309,58 @@ export default function EventEditPage() {
     try {
       const token = localStorage.getItem('token');
 
+      // Upload logo if new file selected
+      let logoUrl = formData.eventLogoUrl;
+      if (logoFile) {
+        setLogoUploading(true);
+        try {
+          const uploadedLogoUrl = await uploadEventAsset(logoFile, 'logo');
+          if (uploadedLogoUrl) {
+            logoUrl = uploadedLogoUrl;
+          }
+        } catch (uploadError) {
+          console.error('Logo upload failed:', uploadError);
+          setModal({
+            isOpen: true,
+            type: 'error',
+            title: 'Upload Failed',
+            message: 'Failed to upload logo. Please try again.',
+          });
+          return;
+        } finally {
+          setLogoUploading(false);
+        }
+      }
+
+      // Upload welcome picture if new file selected
+      let welcomePictureUrl = formData.welcomePictureUrl;
+      if (welcomeFile) {
+        setWelcomeUploading(true);
+        try {
+          const uploadedWelcomeUrl = await uploadEventAsset(welcomeFile, 'welcome');
+          if (uploadedWelcomeUrl) {
+            welcomePictureUrl = uploadedWelcomeUrl;
+          }
+        } catch (uploadError) {
+          console.error('Welcome picture upload failed:', uploadError);
+          setModal({
+            isOpen: true,
+            type: 'error',
+            title: 'Upload Failed',
+            message: 'Failed to upload welcome picture. Please try again.',
+          });
+          return;
+        } finally {
+          setWelcomeUploading(false);
+        }
+      }
+
       // Prepare data for submission
       const submitData = {
         ...formData,
         gracePeriodDays: Math.ceil(formData.gracePeriodHours / 24),
+        eventLogoUrl: logoUrl,
+        welcomePictureUrl: welcomePictureUrl,
       };
 
       const response = await fetch(`/api/v1/admin/events/${eventId}`, {
@@ -159,15 +373,30 @@ export default function EventEditPage() {
       });
 
       if (response.ok) {
-        alert('Event updated successfully!');
-        router.push(`/admin/events/${eventId}`);
+        setModal({
+          isOpen: true,
+          type: 'success',
+          title: 'Success',
+          message: 'Event updated successfully!',
+        });
+        setTimeout(() => router.push(`/admin/events/${eventId}`), 1500);
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to update event');
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Update Failed',
+          message: error.error || 'Failed to update event',
+        });
       }
     } catch (error) {
       console.error('Failed to update event:', error);
-      alert('Failed to update event');
+      setModal({
+        isOpen: true,
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to update event',
+      });
     } finally {
       setSaving(false);
     }
@@ -183,6 +412,17 @@ export default function EventEditPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Modal */}
+      {modal?.isOpen && (
+        <Modal
+          isOpen={modal.isOpen}
+          type={modal.type}
+          title={modal.title}
+          message={modal.message}
+          onClose={() => setModal(null)}
+        />
+      )}
+
       {/* Header */}
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -223,7 +463,7 @@ export default function EventEditPage() {
                 </label>
                 <input
                   type="text"
-                  value={originalOrganizerId}
+                  value={organizerName}
                   disabled
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-500 cursor-not-allowed"
                 />
@@ -407,8 +647,8 @@ export default function EventEditPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Watermark Elements
                 </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {['Event Name', 'Date', 'Logo', 'Photographer Name'].map((element) => (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {['Event Name', 'Event Logo', 'Date', 'Photographer Name', 'FaceFind Branding'].map((element) => (
                     <label key={element} className="flex items-center space-x-2">
                       <input
                         type="checkbox"
@@ -431,6 +671,54 @@ export default function EventEditPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Event Logo
+                </label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png"
+                  onChange={handleLogoFileChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                />
+                {logoPreview && (
+                  <div className="mt-2">
+                    <img
+                      src={logoPreview}
+                      alt="Logo preview"
+                      className="h-20 rounded border border-gray-300"
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Accepted formats: JPG, JPEG, PNG (Max 5MB). Upload new file to replace existing.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Welcome Picture
+                </label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png"
+                  onChange={handleWelcomeFileChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                />
+                {welcomePreview && (
+                  <div className="mt-2">
+                    <img
+                      src={welcomePreview}
+                      alt="Welcome picture preview"
+                      className="h-40 rounded border border-gray-300"
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Accepted formats: JPG, JPEG, PNG (Max 5MB). Upload new file to replace existing.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Welcome Message
                 </label>
                 <textarea
@@ -439,34 +727,6 @@ export default function EventEditPage() {
                   value={formData.welcomeMessage}
                   onChange={handleChange}
                   placeholder="Welcome to our event! Scan your face to find your photos..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Event Logo URL
-                </label>
-                <input
-                  type="url"
-                  name="eventLogoUrl"
-                  value={formData.eventLogoUrl}
-                  onChange={handleChange}
-                  placeholder="https://example.com/logo.png"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Welcome Picture URL
-                </label>
-                <input
-                  type="url"
-                  name="welcomePictureUrl"
-                  value={formData.welcomePictureUrl}
-                  onChange={handleChange}
-                  placeholder="https://example.com/welcome.jpg"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
                 />
               </div>
@@ -489,14 +749,128 @@ export default function EventEditPage() {
             </div>
           </div>
 
+          {/* Billing Estimate */}
+          {billingEstimate && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <span className="text-2xl">💰</span> Updated Billing Estimate
+              </h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left: Summary */}
+                <div>
+                  <div className="bg-white rounded-lg p-4 shadow-sm">
+                    <div className="text-sm text-gray-600 mb-2">Total Estimated Cost</div>
+                    <div className="text-3xl font-bold text-blue-600 mb-4">
+                      {formatINR(billingEstimate.estimatedPrice)}
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">AWS Services Cost:</span>
+                        <span className="font-medium text-gray-900">{formatINR(billingEstimate.totalAWSCost)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Profit Margin (40%):</span>
+                        <span className="font-medium text-green-600">+{formatINR(billingEstimate.profitMargin)}</span>
+                      </div>
+                      <div className="border-t pt-2 mt-2"></div>
+                      <div className="flex justify-between text-base font-semibold">
+                        <span>Charge to Organizer:</span>
+                        <span className="text-blue-600">{formatINR(billingEstimate.estimatedPrice)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 bg-white rounded-lg p-4 shadow-sm">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Event Specs</div>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                      <div>Attendees: <span className="font-medium text-gray-900">{billingEstimate.configurations.estimatedAttendees}</span></div>
+                      <div>Max Photos: <span className="font-medium text-gray-900">{billingEstimate.configurations.maxPhotos}</span></div>
+                      <div>Retention: <span className="font-medium text-gray-900">{billingEstimate.configurations.retentionPeriodDays} days</span></div>
+                      <div>Storage: <span className="font-medium text-gray-900">{billingEstimate.configurations.totalStorageGB} GB</span></div>
+                    </div>
+                  </div>
+
+                  {billingEstimate.configurations.retentionMultiplier > 1.0 && (
+                    <div className="mt-4 bg-orange-50 border border-orange-200 rounded-lg p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-orange-600 text-sm">⚠️</span>
+                        <div className="text-xs text-orange-800">
+                          <div className="font-medium">Retention Period Surcharge Applied</div>
+                          <div className="mt-1">
+                            {billingEstimate.configurations.retentionPeriodDays} days retention =
+                            <span className="font-semibold"> {billingEstimate.configurations.retentionMultiplier}x</span> multiplier
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Breakdown */}
+                <div>
+                  <div className="bg-white rounded-lg p-4 shadow-sm">
+                    <div className="text-sm font-medium text-gray-700 mb-3">AWS Cost Breakdown</div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Storage (S3):</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.storage)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Processing (Lambda):</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.lambda)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Face Recognition:</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.rekognition)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Database:</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.dynamodb)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Data Transfer:</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.cloudfront)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Email (SES):</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.email)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Other Services:</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.other)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <div className="flex gap-2">
+                      <span className="text-yellow-600 text-lg">ℹ️</span>
+                      <div className="text-xs text-yellow-800">
+                        <div className="font-medium mb-1">Estimate Notes:</div>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li>Actual costs may vary based on usage</li>
+                          <li>Includes 40% profit margin</li>
+                          <li>Based on Mumbai (ap-south-1) pricing</li>
+                          <li>Auto-calculated from event configuration</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Submit */}
           <div className="flex gap-4">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || logoUploading || welcomeUploading}
               className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold disabled:opacity-50"
             >
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? 'Saving...' : logoUploading ? 'Uploading Logo...' : welcomeUploading ? 'Uploading Welcome Picture...' : 'Save Changes'}
             </button>
             <Link
               href={`/admin/events/${eventId}`}

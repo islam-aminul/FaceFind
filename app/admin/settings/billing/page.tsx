@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getPricingConfig } from '@/lib/utils/billing-calculator';
 
 export default function BillingSettingsPage() {
   const router = useRouter();
-  const [config, setConfig] = useState(getPricingConfig());
+  const [config, setConfig] = useState<any>(null);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -24,27 +26,93 @@ export default function BillingSettingsPage() {
       router.push('/login');
       return;
     }
+
+    fetchConfig(token);
   }, [router]);
+
+  const fetchConfig = async (token: string) => {
+    try {
+      const response = await fetch('/api/v1/admin/settings/billing', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setConfig(data.config);
+      } else {
+        setError('Failed to load billing config');
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch billing config:', err);
+      setError(err.message || 'Failed to load billing config');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleChange = (field: string, value: number) => {
     setConfig({ ...config, [field]: value });
     setSaved(false);
   };
 
-  const handleSave = () => {
-    // In a real app, you'd save this to a database
-    // For now, it updates the in-memory config
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    setSaved(false);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('/api/v1/admin/settings/billing', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(config),
+      });
+
+      if (response.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to save billing config');
+      }
+    } catch (err: any) {
+      console.error('Failed to save billing config:', err);
+      setError(err.message || 'Failed to save billing config');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-600">Loading billing settings...</p>
+      </div>
+    );
+  }
+
+  if (!config) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-600">Failed to load billing settings</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link href="/admin" className="text-blue-600 hover:text-blue-800 text-sm mb-1 block">
-            ← Back to Dashboard
+          <Link href="/admin/settings" className="text-blue-600 hover:text-blue-800 text-sm mb-1 block">
+            ← Back to Settings
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">Billing Calculator Settings</h1>
           <p className="text-sm text-gray-600 mt-1">
@@ -212,7 +280,7 @@ export default function BillingSettingsPage() {
                 </label>
                 <input
                   type="number"
-                  value={(config.processingOverhead - 1) * 100}
+                  value={Math.round((config.processingOverhead - 1) * 100)}
                   onChange={(e) => handleChange('processingOverhead', 1 + parseFloat(e.target.value) / 100)}
                   step="1"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
@@ -226,7 +294,7 @@ export default function BillingSettingsPage() {
                 </label>
                 <input
                   type="number"
-                  value={(config.storageOverhead - 1) * 100}
+                  value={Math.round((config.storageOverhead - 1) * 100)}
                   onChange={(e) => handleChange('storageOverhead', 1 + parseFloat(e.target.value) / 100)}
                   step="1"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
@@ -279,16 +347,24 @@ export default function BillingSettingsPage() {
           </div>
 
           {/* Save Button */}
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleSave}
-              className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold"
-            >
-              Save Settings
-            </button>
-            {saved && (
-              <span className="text-green-600 font-medium">✓ Settings saved successfully!</span>
+          <div className="space-y-3">
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-800 text-sm">
+                {error}
+              </div>
             )}
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Saving...' : 'Save Settings'}
+              </button>
+              {saved && (
+                <span className="text-green-600 font-medium">✓ Settings saved successfully!</span>
+              )}
+            </div>
           </div>
 
           {/* Info Box */}

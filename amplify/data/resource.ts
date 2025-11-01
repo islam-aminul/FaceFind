@@ -14,7 +14,7 @@ const schema = a.schema({
       bio: a.string(),
       status: a.enum(['ACTIVE', 'SUSPENDED', 'INACTIVE']),
     })
-    .authorization((allow) => [allow.authenticated()]),
+    .authorization((allow) => [allow.publicApiKey()]),
 
   Event: a
     .model({
@@ -41,7 +41,7 @@ const schema = a.schema({
       status: a.enum(['CREATED', 'PAID', 'ACTIVE', 'GRACE_PERIOD', 'DOWNLOAD_PERIOD', 'ARCHIVED']),
       rekognitionCollectionId: a.string().required(),
     })
-    .authorization((allow) => [allow.authenticated()]),
+    .authorization((allow) => [allow.publicApiKey()]),
 
   Photo: a
     .model({
@@ -61,7 +61,7 @@ const schema = a.schema({
       flaggedBy: a.string(),
       flagReason: a.string(),
     })
-    .authorization((allow) => [allow.authenticated()]),
+    .authorization((allow) => [allow.publicApiKey()]),
 
   Session: a
     .model({
@@ -81,7 +81,156 @@ const schema = a.schema({
       photographerId: a.string().required(),
       assignedAt: a.datetime().required(),
     })
-    .authorization((allow) => [allow.authenticated()]),
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  BillingConfig: a
+    .model({
+      configKey: a.string().required(),
+      // Photo size assumptions
+      avgPhotoSizeAfterProcessingMB: a.float().required(),
+      avgOriginalPhotoSizeMB: a.float().required(),
+      thumbnailSizeMB: a.float().required(),
+      // User behavior assumptions
+      avgScansPerAttendee: a.float().required(),
+      avgDownloadsPerAttendee: a.float().required(),
+      avgPhotoViewsPerAttendee: a.float().required(),
+      avgEmailsPerAttendee: a.float().required(),
+      avgWhatsappMessagesPerAttendee: a.float().required(),
+      // Lambda configuration
+      lambdaMemoryGB: a.float().required(),
+      lambdaAvgExecutionSeconds: a.float().required(),
+      lambdaInvocationsMultiplier: a.float().required(), // Per photo processing
+      // DynamoDB configuration
+      metadataStorageSizeKB: a.float().required(), // Per photo metadata size
+      dynamoDBWriteMultiplier: a.integer().required(), // Write requests per photo
+      // S3 configuration
+      s3PutRequestsMultiplier: a.integer().required(), // PUT requests per photo (original + processed + thumbnail)
+      s3GetRequestsMultiplier: a.integer().required(), // GET requests multiplier (downloads + views)
+      // Pricing and overhead
+      profitMarginPercent: a.float().required(),
+      processingOverhead: a.float().required(),
+      storageOverhead: a.float().required(),
+      otherServicesOverhead: a.float().required(), // WAF, CloudWatch, etc.
+      whatsappCostPerMessage: a.float().required(),
+      // Rounding configuration
+      priceRoundingUnit: a.integer().required(), // Round to nearest X (e.g., 100)
+      // Retention pricing tiers
+      retentionTier1Days: a.integer().required(), // 0-X days
+      retentionTier1Multiplier: a.float().required(),
+      retentionTier2Days: a.integer().required(), // X+1-Y days
+      retentionTier2Multiplier: a.float().required(),
+      retentionTier3Days: a.integer().required(), // Y+1-Z days
+      retentionTier3Multiplier: a.float().required(),
+      retentionTier4Days: a.integer().required(), // Z+1-W days
+      retentionTier4Multiplier: a.float().required(),
+      retentionTier5Days: a.integer().required(), // W+1-V days
+      retentionTier5Multiplier: a.float().required(),
+      retentionTier6Multiplier: a.float().required(), // V+ days
+      // AWS Pricing (ap-south-1 Mumbai region in INR)
+      s3StoragePerGBMonth: a.float().required(),
+      s3PutRequestPer1000: a.float().required(),
+      s3GetRequestPer1000: a.float().required(),
+      lambdaRequestPer1M: a.float().required(),
+      lambdaComputePerGBSecond: a.float().required(),
+      rekognitionDetectFacesPer1000: a.float().required(),
+      rekognitionSearchFacesPer1000: a.float().required(),
+      dynamoDBWritePer1M: a.float().required(),
+      dynamoDBReadPer1M: a.float().required(),
+      dynamoDBStoragePerGB: a.float().required(),
+      cloudFrontDataTransferPerGB: a.float().required(),
+      sesEmailPer1000: a.float().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  EventDefaults: a
+    .model({
+      configKey: a.string().required(),
+      defaultEstimatedAttendees: a.integer().required(),
+      defaultMaxPhotos: a.integer().required(),
+      defaultPhotoResizeWidth: a.integer().required(),
+      defaultPhotoResizeHeight: a.integer().required(),
+      defaultPhotoQuality: a.integer().required(),
+      fallbackPaymentAmount: a.float().required(), // Used when billing calculation fails
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  SystemConfig: a
+    .model({
+      configKey: a.string().required(),
+      appName: a.string().required(),
+      supportEmail: a.string().required(),
+      supportPhone: a.string(),
+      maintenanceMode: a.boolean().required(),
+      maintenanceMessage: a.string(),
+      allowNewRegistrations: a.boolean().required(),
+      termsOfServiceUrl: a.string(),
+      privacyPolicyUrl: a.string(),
+      defaultRetentionPeriodDays: a.integer().required(),
+      defaultGracePeriodHours: a.integer().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  SecurityConfig: a
+    .model({
+      configKey: a.string().required(),
+      minPasswordLength: a.integer().required(),
+      requireUppercase: a.boolean().required(),
+      requireLowercase: a.boolean().required(),
+      requireNumbers: a.boolean().required(),
+      requireSpecialChars: a.boolean().required(),
+      passwordExpiryDays: a.integer().required(),
+      maxLoginAttempts: a.integer().required(),
+      lockoutDurationMinutes: a.integer().required(),
+      sessionTimeoutMinutes: a.integer().required(),
+      require2FA: a.boolean().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  StorageConfig: a
+    .model({
+      configKey: a.string().required(),
+      s3BucketName: a.string().required(),
+      s3Region: a.string().required(),
+      maxUploadSizeMB: a.integer().required(),
+      allowedFileTypes: a.string().array(),
+      enableCDN: a.boolean().required(),
+      cdnDomain: a.string(),
+      storageQuotaPerEventGB: a.integer().required(),
+      autoCleanupEnabled: a.boolean().required(),
+      cleanupAfterDays: a.integer().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  FaceRecognitionConfig: a
+    .model({
+      configKey: a.string().required(),
+      defaultConfidenceThreshold: a.float().required(),
+      maxFacesPerPhoto: a.integer().required(),
+      minFaceSize: a.integer().required(),
+      enableQualityFilter: a.boolean().required(),
+      collectionPrefix: a.string().required(),
+      autoDeleteCollections: a.boolean().required(),
+      rekognitionRegion: a.string().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  NotificationConfig: a
+    .model({
+      configKey: a.string().required(),
+      emailProvider: a.string().required(),
+      emailFrom: a.string().required(),
+      emailFromName: a.string().required(),
+      smtpHost: a.string(),
+      smtpPort: a.integer(),
+      smtpUsername: a.string(),
+      smtpPassword: a.string(),
+      whatsappEnabled: a.boolean().required(),
+      whatsappApiKey: a.string(),
+      whatsappPhoneNumber: a.string(),
+      sendWelcomeEmails: a.boolean().required(),
+      sendEventReminders: a.boolean().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;

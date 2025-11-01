@@ -3,7 +3,9 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import '@/lib/amplify-config';
 
-const client = generateClient<Schema>();
+const client = generateClient<Schema>({
+  authMode: 'apiKey',
+});
 
 export async function GET(
   request: NextRequest,
@@ -80,11 +82,66 @@ export async function PUT(
     const { id } = params;
     const body = await request.json();
 
+    // Extract only valid updateable fields
+    const {
+      eventName,
+      organizerId,
+      startDateTime,
+      endDateTime,
+      gracePeriodDays,
+      retentionPeriodDays,
+      location,
+      estimatedAttendees,
+      maxPhotos,
+      confidenceThreshold,
+      photoResizeWidth,
+      photoResizeHeight,
+      photoQuality,
+      watermarkElements,
+      eventLogoUrl,
+      welcomeMessage,
+      welcomePictureUrl,
+      qrCodeUrl,
+      paymentStatus,
+      paymentAmount,
+      status,
+      rekognitionCollectionId,
+    } = body;
+
+    // Build update object with only provided fields
+    const updateData: any = { id };
+
+    if (eventName !== undefined) updateData.eventName = eventName;
+    if (organizerId !== undefined) updateData.organizerId = organizerId;
+    if (startDateTime !== undefined) {
+      // Convert datetime-local format to ISO datetime
+      updateData.startDateTime = new Date(startDateTime).toISOString();
+    }
+    if (endDateTime !== undefined) {
+      // Convert datetime-local format to ISO datetime
+      updateData.endDateTime = new Date(endDateTime).toISOString();
+    }
+    if (gracePeriodDays !== undefined) updateData.gracePeriodDays = gracePeriodDays;
+    if (retentionPeriodDays !== undefined) updateData.retentionPeriodDays = retentionPeriodDays;
+    if (location !== undefined) updateData.location = location;
+    if (estimatedAttendees !== undefined) updateData.estimatedAttendees = estimatedAttendees;
+    if (maxPhotos !== undefined) updateData.maxPhotos = maxPhotos;
+    if (confidenceThreshold !== undefined) updateData.confidenceThreshold = confidenceThreshold;
+    if (photoResizeWidth !== undefined) updateData.photoResizeWidth = photoResizeWidth;
+    if (photoResizeHeight !== undefined) updateData.photoResizeHeight = photoResizeHeight;
+    if (photoQuality !== undefined) updateData.photoQuality = photoQuality;
+    if (watermarkElements !== undefined) updateData.watermarkElements = watermarkElements;
+    if (eventLogoUrl !== undefined) updateData.eventLogoUrl = eventLogoUrl;
+    if (welcomeMessage !== undefined) updateData.welcomeMessage = welcomeMessage;
+    if (welcomePictureUrl !== undefined) updateData.welcomePictureUrl = welcomePictureUrl;
+    if (qrCodeUrl !== undefined) updateData.qrCodeUrl = qrCodeUrl;
+    if (paymentStatus !== undefined) updateData.paymentStatus = paymentStatus;
+    if (paymentAmount !== undefined) updateData.paymentAmount = paymentAmount;
+    if (status !== undefined) updateData.status = status;
+    if (rekognitionCollectionId !== undefined) updateData.rekognitionCollectionId = rekognitionCollectionId;
+
     // Update event
-    const result = await client.models.Event.update({
-      id,
-      ...body,
-    });
+    const result = await client.models.Event.update(updateData);
 
     if (result.errors) {
       console.error('Event update errors:', result.errors);

@@ -3,14 +3,25 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { calculateEventBilling, formatINR, getCostSummary } from '@/lib/utils/billing-calculator';
+import { formatINR } from '@/lib/utils/billing-calculator';
+import Modal from '@/components/Modal';
+
+type ModalState = {
+  isOpen: boolean;
+  type: 'success' | 'error' | 'info';
+  title: string;
+  message: string;
+} | null;
 
 export default function CreateEventPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [modal, setModal] = useState<ModalState>(null);
   const [organizers, setOrganizers] = useState<any[]>([]);
   const [organizerSearch, setOrganizerSearch] = useState('');
   const [billingEstimate, setBillingEstimate] = useState<any>(null);
+  const [settings, setSettings] = useState<any>(null);
   const [formData, setFormData] = useState({
     eventName: '',
     organizerId: '',
@@ -18,7 +29,7 @@ export default function CreateEventPage() {
     endDateTime: '',
     location: '',
     estimatedAttendees: 100,
-    maxPhotos: 500,
+    maxPhotos: 1000,
     gracePeriodHours: 3,
     retentionPeriodDays: 7,
     confidenceThreshold: 85,
@@ -31,26 +42,54 @@ export default function CreateEventPage() {
     welcomePictureUrl: '',
   });
 
-  // Calculate billing estimate whenever relevant fields change
-  useEffect(() => {
-    if (formData.estimatedAttendees && formData.maxPhotos && formData.retentionPeriodDays) {
-      const estimate = calculateEventBilling({
-        estimatedAttendees: formData.estimatedAttendees,
-        maxPhotos: formData.maxPhotos,
-        retentionPeriodDays: formData.retentionPeriodDays,
-        confidenceThreshold: formData.confidenceThreshold,
-        photoResizeWidth: formData.photoResizeWidth,
-        photoResizeHeight: formData.photoResizeHeight,
-      });
-      setBillingEstimate(estimate);
-    }
-  }, [
-    formData.estimatedAttendees,
-    formData.maxPhotos,
-    formData.retentionPeriodDays,
-    formData.confidenceThreshold,
-  ]);
+  // File upload states
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string>('');
+  const [logoUploading, setLogoUploading] = useState(false);
 
+  const [welcomeFile, setWelcomeFile] = useState<File | null>(null);
+  const [welcomePreview, setWelcomePreview] = useState<string>('');
+  const [welcomeUploading, setWelcomeUploading] = useState(false);
+
+  // Separate state for date/time inputs
+  const [startDate, setStartDate] = useState('');
+  const [startHour, setStartHour] = useState('');
+  const [startMinute, setStartMinute] = useState('00');
+  const [startPeriod, setStartPeriod] = useState('AM');
+
+  const [endDate, setEndDate] = useState('');
+  const [endHour, setEndHour] = useState('');
+  const [endMinute, setEndMinute] = useState('00');
+  const [endPeriod, setEndPeriod] = useState('AM');
+
+  // Update formData when date/time inputs change
+  useEffect(() => {
+    if (startDate && startHour && startMinute) {
+      const hour24 = startPeriod === 'PM' && startHour !== '12'
+        ? parseInt(startHour) + 12
+        : startPeriod === 'AM' && startHour === '12'
+        ? 0
+        : parseInt(startHour);
+
+      const dateTimeString = `${startDate}T${String(hour24).padStart(2, '0')}:${startMinute}:00`;
+      setFormData(prev => ({ ...prev, startDateTime: dateTimeString }));
+    }
+  }, [startDate, startHour, startMinute, startPeriod]);
+
+  useEffect(() => {
+    if (endDate && endHour && endMinute) {
+      const hour24 = endPeriod === 'PM' && endHour !== '12'
+        ? parseInt(endHour) + 12
+        : endPeriod === 'AM' && endHour === '12'
+        ? 0
+        : parseInt(endHour);
+
+      const dateTimeString = `${endDate}T${String(hour24).padStart(2, '0')}:${endMinute}:00`;
+      setFormData(prev => ({ ...prev, endDateTime: dateTimeString }));
+    }
+  }, [endDate, endHour, endMinute, endPeriod]);
+
+  // Fetch settings on mount
   useEffect(() => {
     const token = localStorage.getItem('token');
     const userData = localStorage.getItem('user');
@@ -66,8 +105,78 @@ export default function CreateEventPage() {
       return;
     }
 
-    fetchOrganizers(token);
+    // Fetch settings and organizers
+    Promise.all([
+      fetchSettings(),
+      fetchOrganizers(token),
+    ]).finally(() => {
+      setSettingsLoading(false);
+    });
   }, [router]);
+
+  // Apply settings to form data once loaded
+  useEffect(() => {
+    if (settings) {
+      setFormData(prev => ({
+        ...prev,
+        estimatedAttendees: settings.estimatedAttendees,
+        maxPhotos: settings.maxPhotos,
+        gracePeriodHours: settings.gracePeriodHours,
+        retentionPeriodDays: settings.retentionPeriodDays,
+        confidenceThreshold: settings.confidenceThreshold,
+        photoResizeWidth: settings.photoResizeWidth,
+        photoResizeHeight: settings.photoResizeHeight,
+        photoQuality: settings.photoQuality,
+      }));
+    }
+  }, [settings]);
+
+  // Calculate billing estimate whenever relevant fields change
+  useEffect(() => {
+    if (formData.estimatedAttendees && formData.maxPhotos && formData.retentionPeriodDays) {
+      // Call server-side API for billing calculation
+      fetch('/api/v1/billing/calculate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          estimatedAttendees: formData.estimatedAttendees,
+          maxPhotos: formData.maxPhotos,
+          retentionPeriodDays: formData.retentionPeriodDays,
+          confidenceThreshold: formData.confidenceThreshold,
+          photoResizeWidth: formData.photoResizeWidth,
+          photoResizeHeight: formData.photoResizeHeight,
+        }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setBillingEstimate(data.estimate);
+          }
+        })
+        .catch(error => {
+          console.error('Failed to calculate billing:', error);
+        });
+    }
+  }, [
+    formData.estimatedAttendees,
+    formData.maxPhotos,
+    formData.retentionPeriodDays,
+    formData.confidenceThreshold,
+  ]);
+
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch('/api/v1/settings/defaults');
+      if (response.ok) {
+        const data = await response.json();
+        setSettings(data.defaults);
+      }
+    } catch (error) {
+      console.error('Failed to fetch settings:', error);
+    }
+  };
 
   const fetchOrganizers = async (token: string) => {
     try {
@@ -86,11 +195,142 @@ export default function CreateEventPage() {
     }
   };
 
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const allowedTypes = settings?.allowedFileTypes || ['image/jpeg', 'image/jpg', 'image/png'];
+      const maxSizeMB = settings?.maxUploadSizeMB || 10;
+
+      // Validate file type
+      if (!allowedTypes.includes(file.type)) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Invalid File Type',
+          message: `Only ${allowedTypes.join(', ')} files are allowed`,
+        });
+        return;
+      }
+
+      // Validate file size
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'File Too Large',
+          message: `File size must be less than ${maxSizeMB}MB`,
+        });
+        return;
+      }
+
+      setLogoFile(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleWelcomeFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const allowedTypes = settings?.allowedFileTypes || ['image/jpeg', 'image/jpg', 'image/png'];
+      const maxSizeMB = settings?.maxUploadSizeMB || 10;
+
+      // Validate file type
+      if (!allowedTypes.includes(file.type)) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Invalid File Type',
+          message: `Only ${allowedTypes.join(', ')} files are allowed`,
+        });
+        return;
+      }
+
+      // Validate file size
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'File Too Large',
+          message: `File size must be less than ${maxSizeMB}MB`,
+        });
+        return;
+      }
+
+      setWelcomeFile(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setWelcomePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadEventAsset = async (file: File, eventId: string, assetType: 'logo' | 'welcome'): Promise<string | null> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('eventId', eventId);
+      formData.append('assetType', assetType);
+
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/v1/admin/events/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.url;
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || 'Upload failed');
+      }
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      throw error;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
+      // Ensure datetime fields are properly set
+      const startHour24 = startPeriod === 'PM' && startHour !== '12'
+        ? parseInt(startHour) + 12
+        : startPeriod === 'AM' && startHour === '12'
+        ? 0
+        : parseInt(startHour);
+
+      const endHour24 = endPeriod === 'PM' && endHour !== '12'
+        ? parseInt(endHour) + 12
+        : endPeriod === 'AM' && endHour === '12'
+        ? 0
+        : parseInt(endHour);
+
+      // Format as ISO 8601 with timezone (Z for UTC)
+      const startDateTime = `${startDate}T${String(startHour24).padStart(2, '0')}:${startMinute}:00.000Z`;
+      const endDateTime = `${endDate}T${String(endHour24).padStart(2, '0')}:${endMinute}:00.000Z`;
+
+      const payload = {
+        ...formData,
+        startDateTime,
+        endDateTime,
+        paymentAmount: billingEstimate?.estimatedPrice || settings?.fallbackPaymentAmount || 15000,
+      };
+
+      console.log('Submitting event:', payload);
+
       const token = localStorage.getItem('token');
       const response = await fetch('/api/v1/admin/events/create', {
         method: 'POST',
@@ -98,21 +338,85 @@ export default function CreateEventPage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...formData,
-          paymentAmount: billingEstimate?.estimatedPrice || 15000,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
-        router.push('/admin/events');
+        const data = await response.json();
+        const eventId = data.event.id;
+
+        // Upload logo if selected
+        if (logoFile) {
+          setLogoUploading(true);
+          try {
+            const logoUrl = await uploadEventAsset(logoFile, eventId, 'logo');
+            if (logoUrl) {
+              // Update event with logo URL
+              await fetch(`/api/v1/admin/events/${eventId}`, {
+                method: 'PUT',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ eventLogoUrl: logoUrl }),
+              });
+            }
+          } catch (uploadError) {
+            console.error('Logo upload failed:', uploadError);
+          } finally {
+            setLogoUploading(false);
+          }
+        }
+
+        // Upload welcome picture if selected
+        if (welcomeFile) {
+          setWelcomeUploading(true);
+          try {
+            const welcomeUrl = await uploadEventAsset(welcomeFile, eventId, 'welcome');
+            if (welcomeUrl) {
+              // Update event with welcome picture URL
+              await fetch(`/api/v1/admin/events/${eventId}`, {
+                method: 'PUT',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ welcomePictureUrl: welcomeUrl }),
+              });
+            }
+          } catch (uploadError) {
+            console.error('Welcome picture upload failed:', uploadError);
+          } finally {
+            setWelcomeUploading(false);
+          }
+        }
+
+        setModal({
+          isOpen: true,
+          type: 'success',
+          title: 'Event Created Successfully!',
+          message: 'The event has been created and organizer has been notified.',
+        });
+        setTimeout(() => router.push('/admin/events'), 2000);
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to create event');
+        console.error('Event creation error:', error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
+        setModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Failed to Create Event',
+          message: error.error + (error.details ? `: ${JSON.stringify(error.details[0])}` : '') || 'An error occurred while creating the event',
+        });
       }
     } catch (error) {
       console.error('Failed to create event:', error);
-      alert('Failed to create event');
+      setModal({
+        isOpen: true,
+        type: 'error',
+        title: 'Failed to Create Event',
+        message: 'An unexpected error occurred. Please try again.',
+      });
     } finally {
       setLoading(false);
     }
@@ -145,6 +449,17 @@ export default function CreateEventPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Modal */}
+      {modal?.isOpen && (
+        <Modal
+          isOpen={modal.isOpen}
+          type={modal.type}
+          title={modal.title}
+          message={modal.message}
+          onClose={() => setModal(null)}
+        />
+      )}
+
       {/* Header */}
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -218,28 +533,102 @@ export default function CreateEventPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Start Date & Time *
                 </label>
-                <input
-                  type="datetime-local"
-                  name="startDateTime"
-                  required
-                  value={formData.startDateTime}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                />
+                <div className="space-y-2">
+                  <input
+                    type="date"
+                    required
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    placeholder="dd/mm/yyyy"
+                  />
+                  <div className="grid grid-cols-4 gap-2">
+                    <select
+                      required
+                      value={startHour}
+                      onChange={(e) => setStartHour(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    >
+                      <option value="">HH</option>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                        <option key={h} value={String(h).padStart(2, '0')}>
+                          {String(h).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      required
+                      value={startMinute}
+                      onChange={(e) => setStartMinute(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    >
+                      <option value="00">00</option>
+                      <option value="15">15</option>
+                      <option value="30">30</option>
+                      <option value="45">45</option>
+                    </select>
+                    <select
+                      required
+                      value={startPeriod}
+                      onChange={(e) => setStartPeriod(e.target.value)}
+                      className="col-span-2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   End Date & Time *
                 </label>
-                <input
-                  type="datetime-local"
-                  name="endDateTime"
-                  required
-                  value={formData.endDateTime}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                />
+                <div className="space-y-2">
+                  <input
+                    type="date"
+                    required
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    placeholder="dd/mm/yyyy"
+                  />
+                  <div className="grid grid-cols-4 gap-2">
+                    <select
+                      required
+                      value={endHour}
+                      onChange={(e) => setEndHour(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    >
+                      <option value="">HH</option>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                        <option key={h} value={String(h).padStart(2, '0')}>
+                          {String(h).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      required
+                      value={endMinute}
+                      onChange={(e) => setEndMinute(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    >
+                      <option value="00">00</option>
+                      <option value="15">15</option>
+                      <option value="30">30</option>
+                      <option value="45">45</option>
+                    </select>
+                    <select
+                      required
+                      value={endPeriod}
+                      onChange={(e) => setEndPeriod(e.target.value)}
+                      className="col-span-2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div className="md:col-span-2">
@@ -414,6 +803,54 @@ export default function CreateEventPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Event Logo
+                </label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png"
+                  onChange={handleLogoFileChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                />
+                {logoPreview && (
+                  <div className="mt-2">
+                    <img
+                      src={logoPreview}
+                      alt="Logo preview"
+                      className="h-20 rounded border border-gray-300"
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Accepted formats: JPG, JPEG, PNG (Max 5MB)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Welcome Picture
+                </label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png"
+                  onChange={handleWelcomeFileChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                />
+                {welcomePreview && (
+                  <div className="mt-2">
+                    <img
+                      src={welcomePreview}
+                      alt="Welcome picture preview"
+                      className="h-40 rounded border border-gray-300"
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Accepted formats: JPG, JPEG, PNG (Max 5MB)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Welcome Message
                 </label>
                 <textarea
@@ -447,7 +884,7 @@ export default function CreateEventPage() {
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-600">AWS Services Cost:</span>
-                        <span className="font-medium">{formatINR(billingEstimate.totalAWSCost)}</span>
+                        <span className="font-medium text-gray-900">{formatINR(billingEstimate.totalAWSCost)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Profit Margin (40%):</span>
@@ -517,6 +954,10 @@ export default function CreateEventPage() {
                         <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.email)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">WhatsApp:</span>
+                        <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.whatsapp)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
                         <span className="text-gray-700">Other Services:</span>
                         <span className="font-semibold text-gray-900">{formatINR(billingEstimate.breakdown.other)}</span>
                       </div>
@@ -546,10 +987,10 @@ export default function CreateEventPage() {
           <div className="flex gap-4">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || logoUploading || welcomeUploading}
               className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-semibold disabled:opacity-50"
             >
-              {loading ? 'Creating...' : 'Create Event'}
+              {loading ? 'Creating...' : logoUploading ? 'Uploading Logo...' : welcomeUploading ? 'Uploading Welcome Picture...' : 'Create Event'}
             </button>
             <Link
               href="/admin/events"
