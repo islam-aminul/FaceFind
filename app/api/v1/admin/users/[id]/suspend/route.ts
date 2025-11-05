@@ -44,20 +44,51 @@ export async function POST(
 
     // For photographers, check for upcoming events
     if (user.role === 'PHOTOGRAPHER') {
-      // TODO: Check for upcoming photographer assignments
-      // If exists, return error with list of events that need reassignment
-      // const { data: assignments } = await client.models.PhotographerAssignment.list({
-      //   filter: {
-      //     photographerId: { eq: params.id },
-      //     // Add date filter for upcoming events
-      //   }
-      // });
-      // if (assignments && assignments.length > 0) {
-      //   return NextResponse.json({
-      //     error: 'Cannot suspend photographer with upcoming events. Please reassign all events first.',
-      //     upcomingEvents: assignments
-      //   }, { status: 400 });
-      // }
+      // Get all photographer assignments
+      const { data: assignments } = await client.models.PhotographerAssignment.list({
+        filter: {
+          photographerId: { eq: params.id }
+        }
+      });
+
+      if (assignments && assignments.length > 0) {
+        // Check if any assigned events are upcoming (CREATED, PAID, or ACTIVE status)
+        const upcomingEvents: any[] = [];
+        const now = new Date();
+
+        for (const assignment of assignments) {
+          // Get the event details
+          const { data: event } = await client.models.Event.get({ id: assignment.eventId });
+
+          if (event) {
+            // Event is upcoming if it's in CREATED, PAID, or ACTIVE status
+            // or if the end date hasn't passed yet
+            const eventEndDate = new Date(event.endDateTime);
+            const isUpcoming =
+              ['CREATED', 'PAID', 'ACTIVE'].includes(event.status) ||
+              eventEndDate > now;
+
+            if (isUpcoming) {
+              upcomingEvents.push({
+                eventId: event.id,
+                eventName: event.eventName,
+                status: event.status,
+                startDateTime: event.startDateTime,
+                endDateTime: event.endDateTime,
+              });
+            }
+          }
+        }
+
+        // If there are upcoming events, prevent suspension
+        if (upcomingEvents.length > 0) {
+          return NextResponse.json({
+            error: 'Cannot suspend photographer with upcoming events. Please reassign all events first.',
+            upcomingEvents,
+            count: upcomingEvents.length,
+          }, { status: 400 });
+        }
+      }
     }
 
     // Update user status in DynamoDB
