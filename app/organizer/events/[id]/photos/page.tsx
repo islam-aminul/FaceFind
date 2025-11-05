@@ -29,6 +29,7 @@ export default function OrganizerEventPhotosPage() {
   const [loading, setLoading] = useState(true);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [userId, setUserId] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -93,19 +94,89 @@ export default function OrganizerEventPhotosPage() {
     const photoIds = Array.from(selectedPhotos);
 
     if (photoIds.length === 1) {
+      // Single photo - direct download
       const photo = photos.find(p => p.photoId === photoIds[0]);
       if (photo) {
         window.open(photo.processedUrl, '_blank');
       }
     } else {
-      // TODO: Implement bulk download as ZIP
-      alert('Bulk download will be implemented with photo processing pipeline');
+      // Multiple photos - download as ZIP
+      setDownloading(true);
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch('/api/v1/photos/download-bulk', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            photoIds,
+            eventName: `Event_${eventId}`,
+            downloadType: 'zip',
+          }),
+        });
+
+        if (response.ok) {
+          // Get the ZIP file blob
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `photos_${new Date().getTime()}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        } else {
+          alert('Failed to download photos. Please try again.');
+        }
+      } catch (error) {
+        console.error('Download failed:', error);
+        alert('Failed to download photos. Please try again.');
+      } finally {
+        setDownloading(false);
+      }
     }
   };
 
   const downloadAll = async () => {
-    // TODO: Implement download all as ZIP
-    alert('Download all will be implemented with photo processing pipeline');
+    if (photos.length === 0) return;
+
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !userId) return;
+
+      const response = await fetch(`/api/v1/organizer/events/${eventId}/download-all?downloadType=zip`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-User-Id': userId,
+        },
+      });
+
+      if (response.ok) {
+        // Get the ZIP file blob
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `event_${eventId}_all_photos.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        alert('Failed to download photos. Please try again.');
+      }
+    } catch (error) {
+      console.error('Download all failed:', error);
+      alert('Failed to download photos. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -121,9 +192,10 @@ export default function OrganizerEventPhotosPage() {
             <div className="flex gap-3">
               <button
                 onClick={downloadAll}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition"
+                disabled={downloading || photos.length === 0}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                📥 Download All
+                {downloading ? '⏳ Preparing ZIP...' : '📥 Download All'}
               </button>
             </div>
           </div>
@@ -167,10 +239,10 @@ export default function OrganizerEventPhotosPage() {
                   </button>
                   <button
                     onClick={downloadSelected}
-                    disabled={selectedPhotos.size === 0}
+                    disabled={selectedPhotos.size === 0 || downloading}
                     className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Download Selected ({selectedPhotos.size})
+                    {downloading ? '⏳ Downloading...' : `Download Selected (${selectedPhotos.size})`}
                   </button>
                 </div>
               </div>

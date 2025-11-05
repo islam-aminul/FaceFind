@@ -3,6 +3,7 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import { CognitoIdentityProviderClient, AdminCreateUserCommand, AdminSetUserPasswordCommand, AdminAddUserToGroupCommand } from '@aws-sdk/client-cognito-identity-provider';
 import { emailService } from '@/lib/aws/ses';
+import { jwtService } from '@/lib/utils/jwt';
 import '@/lib/amplify-config';
 
 const client = generateClient<Schema>({
@@ -44,7 +45,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // TODO: Add proper token verification when implementing production auth
+    // Extract and verify JWT token
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    const tokenPayload = jwtService.verifyToken(token);
+
+    if (!tokenPayload) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    }
+
+    // Verify admin role
+    if (tokenPayload.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Access denied. Admin privileges required.' }, { status: 403 });
+    }
 
     // Parse request body
     const body = await request.json();
