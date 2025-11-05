@@ -1,7 +1,7 @@
 /**
  * WhatsApp Integration Service
  *
- * Uses Twilio API for WhatsApp messaging
+ * Uses AiSensy API for WhatsApp messaging
  * Features:
  * - Send OTP for phone verification
  * - Send photo match notifications
@@ -10,55 +10,63 @@
 
 import { fetch } from 'undici';
 
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886'; // Twilio sandbox number
+const AISENSY_API_KEY = process.env.AISENSY_API_KEY;
+const AISENSY_BASE_URL = process.env.AISENSY_BASE_URL || 'https://backend.aisensy.com';
 
-interface WhatsAppMessage {
-  to: string;
-  body: string;
+// Campaign names configured in AiSensy dashboard
+const AISENSY_CAMPAIGN_OTP = process.env.AISENSY_CAMPAIGN_OTP || 'otp_verification';
+const AISENSY_CAMPAIGN_PHOTO_MATCH = process.env.AISENSY_CAMPAIGN_PHOTO_MATCH || 'photo_match_notification';
+const AISENSY_CAMPAIGN_REMINDER = process.env.AISENSY_CAMPAIGN_REMINDER || 'download_reminder';
+const AISENSY_CAMPAIGN_EVENT_START = process.env.AISENSY_CAMPAIGN_EVENT_START || 'event_start_notification';
+
+interface AiSensyMessagePayload {
+  apiKey: string;
+  campaignName: string;
+  destination: string;
+  userName: string;
+  source?: string;
+  media?: {
+    url: string;
+    filename: string;
+  };
+  templateParams: string[];
+  tags?: string[];
+  attributes?: Record<string, any>;
 }
 
 export class WhatsAppService {
   private isConfigured(): boolean {
-    return !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN);
+    return !!AISENSY_API_KEY;
   }
 
-  async sendMessage(to: string, body: string): Promise<boolean> {
+  private async sendAiSensyMessage(payload: AiSensyMessagePayload): Promise<boolean> {
     if (!this.isConfigured()) {
-      console.warn('WhatsApp service not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN');
+      console.warn('WhatsApp service not configured. Set AISENSY_API_KEY');
       return false;
     }
 
     try {
-      // Format phone number for WhatsApp (add whatsapp: prefix if not present)
-      const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
-
-      const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-
-      const params = new URLSearchParams({
-        From: TWILIO_WHATSAPP_NUMBER,
-        To: formattedTo,
-        Body: body,
-      });
+      const url = `${AISENSY_BASE_URL}/campaign/t1/api/v2`;
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+          'Content-Type': 'application/json',
         },
-        body: params.toString(),
+        body: JSON.stringify({
+          ...payload,
+          apiKey: AISENSY_API_KEY,
+        }),
       });
 
       if (!response.ok) {
         const error = await response.text();
-        console.error('WhatsApp send error:', error);
+        console.error('AiSensy API error:', error);
         return false;
       }
 
       const data = await response.json();
-      console.log('WhatsApp message sent:', data.sid);
+      console.log('WhatsApp message sent via AiSensy:', data);
       return true;
     } catch (error) {
       console.error('WhatsApp service error:', error);
@@ -66,10 +74,33 @@ export class WhatsAppService {
     }
   }
 
-  async sendOTP(phoneNumber: string, otp: string): Promise<boolean> {
-    const message = `Your FaceFind verification code is: ${otp}\n\nThis code will expire in 10 minutes.\n\nIf you didn't request this code, please ignore this message.`;
+  async sendMessage(to: string, body: string, campaignName: string = AISENSY_CAMPAIGN_PHOTO_MATCH): Promise<boolean> {
+    // Format phone number (remove + and any spaces, keep country code)
+    const formattedTo = to.replace(/[\s+]/g, '');
 
-    return await this.sendMessage(phoneNumber, message);
+    return await this.sendAiSensyMessage({
+      apiKey: AISENSY_API_KEY!,
+      campaignName,
+      destination: formattedTo,
+      userName: 'User',
+      source: 'FaceFind',
+      templateParams: [body],
+    });
+  }
+
+  async sendOTP(phoneNumber: string, otp: string): Promise<boolean> {
+    // AiSensy authentication templates expect OTP code as a parameter
+    // The template is pre-configured in AiSensy dashboard
+    const formattedPhone = phoneNumber.replace(/[\s+]/g, '');
+
+    return await this.sendAiSensyMessage({
+      apiKey: AISENSY_API_KEY!,
+      campaignName: AISENSY_CAMPAIGN_OTP,
+      destination: formattedPhone,
+      userName: 'User',
+      source: 'FaceFind',
+      templateParams: [otp], // OTP code
+    });
   }
 
   async sendPhotoMatchNotification(
@@ -78,9 +109,18 @@ export class WhatsAppService {
     photoCount: number,
     sessionUrl: string
   ): Promise<boolean> {
-    const message = `🎉 Great news! We found ${photoCount} photo${photoCount > 1 ? 's' : ''} of you at ${eventName}!\n\nView and download your photos:\n${sessionUrl}\n\nThis link will be available until the event retention period ends.`;
+    // Template parameters: eventName, photoCount, sessionUrl
+    const formattedPhone = phoneNumber.replace(/[\s+]/g, '');
 
-    return await this.sendMessage(phoneNumber, message);
+    return await this.sendAiSensyMessage({
+      apiKey: AISENSY_API_KEY!,
+      campaignName: AISENSY_CAMPAIGN_PHOTO_MATCH,
+      destination: formattedPhone,
+      userName: 'User',
+      source: 'FaceFind',
+      templateParams: [eventName, photoCount.toString(), sessionUrl],
+      tags: ['photo_match'],
+    });
   }
 
   async sendDownloadReminder(
@@ -89,9 +129,18 @@ export class WhatsAppService {
     daysRemaining: number,
     sessionUrl: string
   ): Promise<boolean> {
-    const message = `⏰ Reminder: Your photos from ${eventName} will be deleted in ${daysRemaining} day${daysRemaining > 1 ? 's' : ''}!\n\nDownload them now:\n${sessionUrl}\n\nDon't miss out on your memories!`;
+    // Template parameters: eventName, daysRemaining, sessionUrl
+    const formattedPhone = phoneNumber.replace(/[\s+]/g, '');
 
-    return await this.sendMessage(phoneNumber, message);
+    return await this.sendAiSensyMessage({
+      apiKey: AISENSY_API_KEY!,
+      campaignName: AISENSY_CAMPAIGN_REMINDER,
+      destination: formattedPhone,
+      userName: 'User',
+      source: 'FaceFind',
+      templateParams: [eventName, daysRemaining.toString(), sessionUrl],
+      tags: ['reminder'],
+    });
   }
 
   async sendEventStartNotification(
@@ -99,9 +148,18 @@ export class WhatsAppService {
     eventName: string,
     scanUrl: string
   ): Promise<boolean> {
-    const message = `📸 ${eventName} is now live!\n\nScan your face to find your photos:\n${scanUrl}\n\nEnjoy the event!`;
+    // Template parameters: eventName, scanUrl
+    const formattedPhone = phoneNumber.replace(/[\s+]/g, '');
 
-    return await this.sendMessage(phoneNumber, message);
+    return await this.sendAiSensyMessage({
+      apiKey: AISENSY_API_KEY!,
+      campaignName: AISENSY_CAMPAIGN_EVENT_START,
+      destination: formattedPhone,
+      userName: 'User',
+      source: 'FaceFind',
+      templateParams: [eventName, scanUrl],
+      tags: ['event_start'],
+    });
   }
 }
 

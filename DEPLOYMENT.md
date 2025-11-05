@@ -53,6 +53,30 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Save this key in your environment variables.
 
+### WhatsApp Integration (AiSensy)
+
+FaceFind uses AiSensy for WhatsApp notifications. See [AISENSY_SETUP.md](./AISENSY_SETUP.md) for detailed setup instructions.
+
+**Quick Setup**:
+1. Create an AiSensy account at [aisensy.com](https://aisensy.com)
+2. Apply for WhatsApp Business API access (Free)
+3. Create the following message templates:
+   - `otp_verification` (Authentication)
+   - `photo_match_notification` (Marketing)
+   - `download_reminder` (Marketing)
+   - `event_start_notification` (Marketing)
+4. Create API campaigns for each template
+5. Add environment variables:
+   ```bash
+   AISENSY_API_KEY=your_api_key
+   AISENSY_CAMPAIGN_OTP=otp_verification
+   AISENSY_CAMPAIGN_PHOTO_MATCH=photo_match_notification
+   AISENSY_CAMPAIGN_REMINDER=download_reminder
+   AISENSY_CAMPAIGN_EVENT_START=event_start_notification
+   ```
+
+See the complete guide in [AISENSY_SETUP.md](./AISENSY_SETUP.md) for template formats, testing, and troubleshooting.
+
 ## Deployment Options
 
 ### Option 1: Vercel Deployment (Recommended)

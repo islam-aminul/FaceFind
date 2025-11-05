@@ -1,3 +1,12 @@
+/**
+ * Alternative WhatsApp utilities (Facebook Graph API)
+ *
+ * This file is kept for reference but is no longer actively used.
+ * The main WhatsApp service (lib/services/whatsapp-service.ts) now uses AiSensy.
+ *
+ * To use Facebook Graph API instead, update the imports in your code.
+ */
+
 const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v18.0';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
@@ -11,7 +20,10 @@ export interface WhatsAppMessage {
   imageUrls?: string[];
 }
 
-export class WhatsAppService {
+/**
+ * @deprecated Use whatsappService from lib/services/whatsapp-service.ts instead (AiSensy)
+ */
+export class WhatsAppServiceFacebook {
   async sendPhotoNotification(message: WhatsAppMessage): Promise<void> {
     const text = `🎉 *${message.eventName}*\n\nWe found ${message.photoCount} photo${message.photoCount > 1 ? 's' : ''} of you!\n\n📸 View Gallery: ${message.galleryLink}\n📥 Download HD: ${message.downloadLink}\n\nReply STOP to unsubscribe.`;
 
@@ -87,5 +99,3 @@ export class WhatsAppService {
     await this.sendTextMessage(to, text);
   }
 }
-
-export const whatsappService = new WhatsAppService();
