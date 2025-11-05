@@ -1,0 +1,20 @@
+{
+  "name": "cleanup-retention",
+  "version": "1.0.0",
+  "description": "Lambda function to cleanup photos and archive events after retention period",
+  "main": "handler.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.450.0",
+    "@aws-sdk/lib-dynamodb": "^3.450.0",
+    "@aws-sdk/client-s3": "^3.450.0",
+    "@aws-sdk/client-rekognition": "^3.450.0",
+    "@aws-sdk/client-ses": "^3.450.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  }
+}
