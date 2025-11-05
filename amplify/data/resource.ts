@@ -231,6 +231,19 @@ const schema = a.schema({
       sendEventReminders: a.boolean().required(),
     })
     .authorization((allow) => [allow.publicApiKey()]),
+
+  GooglePhotosToken: a
+    .model({
+      userId: a.string().required(),
+      accessToken: a.string().required(),
+      refreshToken: a.string().required(),
+      expiresAt: a.integer().required(), // Unix timestamp
+      scope: a.string().required(),
+      tokenType: a.string().required(),
+      createdAt: a.datetime().required(),
+      updatedAt: a.datetime().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;
