@@ -4,6 +4,8 @@ import type { Schema } from '@/amplify/data/resource';
 import '@/lib/amplify-config';
 import { calculateEventBilling } from '@/lib/utils/billing-calculator';
 import { settingsService } from '@/lib/services/settings-service';
+import { rekognitionService } from '@/lib/services/rekognition-service';
+import { emailService } from '@/lib/aws/ses';
 
 const client = generateClient<Schema>({
   authMode: 'apiKey',
@@ -102,9 +104,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Create Rekognition collection
-    // TODO: Generate QR code
-    // TODO: Send notification to organizer
+    // Create Rekognition collection for face indexing
+    try {
+      await rekognitionService.createCollection(rekognitionCollectionId);
+      console.log(`Rekognition collection created: ${rekognitionCollectionId}`);
+    } catch (error: any) {
+      console.error('Failed to create Rekognition collection:', error);
+      // Don't fail the event creation, just log the error
+      // The collection can be created manually later if needed
+    }
+
+    // Send notification email to organizer
+    try {
+      const { data: organizer } = await client.models.User.get({ id: organizerId });
+      if (organizer && organizer.email) {
+        const subject = `Event Created: ${eventName}`;
+        const htmlBody = `
+          <html>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Event Created Successfully</h2>
+              <p>Hi ${organizer.firstName},</p>
+              <p>Your event has been created successfully.</p>
+              <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px;">
+                <p><strong>Event Name:</strong> ${eventName}</p>
+                <p><strong>Location:</strong> ${location}</p>
+                <p><strong>Start Date:</strong> ${new Date(startDateTime).toLocaleString()}</p>
+                <p><strong>Payment Status:</strong> PENDING</p>
+                <p><strong>Amount:</strong> ₹${billing.estimatedPrice.toFixed(2)}</p>
+              </div>
+              <p>Please contact the admin to complete payment and activate your event.</p>
+              <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/organizer/events/${result.data?.id}" style="background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">View Event</a></p>
+              <br>
+              <p>Best regards,<br>The FaceFind Team</p>
+            </body>
+          </html>
+        `;
+        await emailService.sendEmail([organizer.email], subject, htmlBody);
+      }
+    } catch (error: any) {
+      console.error('Failed to send organizer notification:', error);
+      // Don't fail the event creation, just log the error
+    }
 
     return NextResponse.json({
       success: true,

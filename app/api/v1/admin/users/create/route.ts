@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import { CognitoIdentityProviderClient, AdminCreateUserCommand, AdminSetUserPasswordCommand, AdminAddUserToGroupCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { emailService } from '@/lib/aws/ses';
 import '@/lib/amplify-config';
 
 const client = generateClient<Schema>({
@@ -142,8 +143,16 @@ export async function POST(request: NextRequest) {
 
       const { data: newUser } = await client.models.User.create(userData);
 
-      // TODO: Send invitation email if sendInvitation is true
-      // This would use AWS SES to send the email with temporary password
+      // Send invitation email if sendInvitation is true
+      if (sendInvitation) {
+        try {
+          await emailService.sendInvitationEmail(email, role, temporaryPassword);
+          console.log(`Invitation email sent to ${email}`);
+        } catch (emailError) {
+          console.error('Failed to send invitation email:', emailError);
+          // Don't fail the user creation if email fails
+        }
+      }
 
       return NextResponse.json({
         message: 'User created successfully',

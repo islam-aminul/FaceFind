@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import { CognitoIdentityProviderClient, AdminDisableUserCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { emailService } from '@/lib/aws/ses';
 import '@/lib/amplify-config';
 
 const client = generateClient<Schema>({
@@ -78,7 +79,15 @@ export async function POST(
       // Continue anyway as status is updated in DynamoDB
     }
 
-    // TODO: Send suspension notification email
+    // Send suspension notification email
+    try {
+      const userName = `${user.firstName} ${user.lastName}`;
+      await emailService.sendSuspensionEmail(user.email, userName);
+      console.log(`Suspension email sent to ${user.email}`);
+    } catch (emailError) {
+      console.error('Failed to send suspension email:', emailError);
+      // Don't fail the suspension if email fails
+    }
 
     return NextResponse.json({
       message: 'User suspended successfully',

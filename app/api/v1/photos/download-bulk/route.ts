@@ -3,13 +3,14 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import archiver from 'archiver';
 import { s3Service } from '@/lib/aws/s3';
+import { Readable } from 'stream';
 
 const client = generateClient<Schema>();
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { photoIds, eventName } = body;
+    const { photoIds, eventName, downloadType = 'urls' } = body;
 
     if (!photoIds || !Array.isArray(photoIds) || photoIds.length === 0) {
       return NextResponse.json(
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
     const photos = [];
     for (const photoId of photoIds) {
       const { data: photo } = await client.models.Photo.get({ id: photoId });
-      if (photo) {
+      if (photo && photo.status === 'LIVE') {
         photos.push(photo);
       }
     }
@@ -41,8 +42,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // For now, generate presigned URLs for download
-    // In production with Lambda, you'd stream the actual files
+    const filename = eventName
+      ? `${eventName.replace(/[^a-z0-9]/gi, '_')}_photos`
+      : `photos_${new Date().getTime()}`;
+
+    // If downloadType is 'zip', create actual ZIP file
+    if (downloadType === 'zip') {
+      // Create ZIP archive
+      const archive = archiver('zip', {
+        zlib: { level: 6 } // Compression level
+      });
+
+      // Set response headers for ZIP download
+      const headers = new Headers();
+      headers.set('Content-Type', 'application/zip');
+      headers.set('Content-Disposition', `attachment; filename="${filename}.zip"`);
+
+      // Stream photos into ZIP
+      let photoCount = 0;
+      for (const photo of photos) {
+        try {
+          const url = photo.processedUrl || photo.originalUrl;
+          const extension = url.split('.').pop()?.toLowerCase() || 'jpg';
+          const fileName = `photo_${(photoCount + 1).toString().padStart(3, '0')}.${extension}`;
+
+          // Extract S3 key from URL
+          const key = url.split('.amazonaws.com/')[1];
+
+          if (key) {
+            // Download photo from S3
+            const photoBuffer = await s3Service.getObject(key);
+
+            // Add to archive
+            archive.append(photoBuffer, { name: fileName });
+            photoCount++;
+          }
+        } catch (error) {
+          console.error(`Failed to add photo to ZIP:`, error);
+          // Continue with other photos
+        }
+      }
+
+      // Finalize archive
+      await archive.finalize();
+
+      // Convert archive stream to Response
+      const stream = Readable.toWeb(archive as any);
+      return new Response(stream, { headers });
+    }
+
+    // Default: Return presigned URLs for client-side download
     const photoUrls = await Promise.all(
       photos.map(async (photo, index) => {
         const url = photo.processedUrl || photo.originalUrl;
@@ -63,18 +112,12 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    // Return JSON with presigned URLs for client-side download
-    // Client will download each file and create ZIP locally
-    const filename = eventName
-      ? `${eventName.replace(/[^a-z0-9]/gi, '_')}_photos`
-      : `photos_${new Date().getTime()}`;
-
     return NextResponse.json({
       success: true,
       filename,
       photos: photoUrls,
       count: photoUrls.length,
-      message: 'Download URLs generated. Use client-side ZIP library to bundle.',
+      message: 'Download URLs generated. Set downloadType=zip for server-side ZIP generation.',
     });
 
   } catch (error: any) {

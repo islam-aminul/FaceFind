@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import { CognitoIdentityProviderClient, AdminEnableUserCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { emailService } from '@/lib/aws/ses';
 import '@/lib/amplify-config';
 
 const client = generateClient<Schema>({
@@ -55,7 +56,15 @@ export async function POST(
       // Continue anyway as status is updated in DynamoDB
     }
 
-    // TODO: Send reactivation notification email
+    // Send reactivation notification email
+    try {
+      const userName = `${user.firstName} ${user.lastName}`;
+      await emailService.sendReactivationEmail(user.email, userName);
+      console.log(`Reactivation email sent to ${user.email}`);
+    } catch (emailError) {
+      console.error('Failed to send reactivation email:', emailError);
+      // Don't fail the reactivation if email fails
+    }
 
     return NextResponse.json({
       message: 'User reactivated successfully',

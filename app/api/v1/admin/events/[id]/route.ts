@@ -176,7 +176,55 @@ export async function DELETE(
 
     const { id } = params;
 
-    // TODO: Add validation - cannot delete if photos exist or event is active
+    // Get event to check status
+    const { data: event } = await client.models.Event.get({ id });
+    if (!event) {
+      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+    }
+
+    // Check if event is active or has status beyond CREATED
+    if (event.status !== 'CREATED') {
+      return NextResponse.json(
+        {
+          error: 'Cannot delete event',
+          reason: `Event cannot be deleted because it has status: ${event.status}. Only events with CREATED status can be deleted.`,
+          currentStatus: event.status
+        },
+        { status: 400 }
+      );
+    }
+
+    // Check if photos exist for this event
+    const { data: photos } = await client.models.Photo.list({
+      filter: { eventId: { eq: id } }
+    });
+
+    if (photos && photos.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Cannot delete event',
+          reason: `Event has ${photos.length} photo(s) associated with it. Please delete all photos before deleting the event.`,
+          photoCount: photos.length
+        },
+        { status: 400 }
+      );
+    }
+
+    // Check if sessions exist (attendees have scanned faces)
+    const { data: sessions } = await client.models.Session.list({
+      filter: { eventId: { eq: id } }
+    });
+
+    if (sessions && sessions.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Cannot delete event',
+          reason: `Event has ${sessions.length} active session(s). Cannot delete event with attendee data.`,
+          sessionCount: sessions.length
+        },
+        { status: 400 }
+      );
+    }
 
     const result = await client.models.Event.delete({ id });
 
