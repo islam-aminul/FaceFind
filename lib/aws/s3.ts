@@ -69,6 +69,31 @@ export class S3Service {
     }
   }
 
+  async getObject(key: string): Promise<Buffer> {
+    try {
+      const response = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: key,
+        })
+      );
+
+      // Convert stream to buffer
+      const chunks: Buffer[] = [];
+      if (response.Body) {
+        const stream = response.Body as any;
+        for await (const chunk of stream) {
+          chunks.push(Buffer.from(chunk));
+        }
+      }
+
+      return Buffer.concat(chunks);
+    } catch (error: any) {
+      console.error('S3 getObject error:', error);
+      throw new Error(`Failed to get object from S3: ${error.message}`);
+    }
+  }
+
   async getFileSize(key: string): Promise<number> {
     const result = await s3Client.send(
       new HeadObjectCommand({

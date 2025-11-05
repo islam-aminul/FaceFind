@@ -128,8 +128,57 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot delete admin users' }, { status: 400 });
     }
 
-    // TODO: Check for active events if photographer
-    // TODO: Check for owned events if organizer
+    // Check for active assignments if photographer
+    if (user.role === 'PHOTOGRAPHER') {
+      const { data: assignments } = await client.models.PhotographerAssignment.list({
+        filter: { photographerId: { eq: params.id } }
+      });
+
+      if (assignments && assignments.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Cannot delete photographer',
+            reason: `Photographer has ${assignments.length} event assignment(s). Please remove all assignments before deleting.`,
+            assignmentCount: assignments.length
+          },
+          { status: 400 }
+        );
+      }
+
+      // Check for photos uploaded by this photographer
+      const { data: photos } = await client.models.Photo.list({
+        filter: { photographerId: { eq: params.id } }
+      });
+
+      if (photos && photos.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Cannot delete photographer',
+            reason: `Photographer has uploaded ${photos.length} photo(s). Cannot delete photographer with uploaded photos.`,
+            photoCount: photos.length
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Check for owned events if organizer
+    if (user.role === 'ORGANIZER') {
+      const { data: events } = await client.models.Event.list({
+        filter: { organizerId: { eq: params.id } }
+      });
+
+      if (events && events.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Cannot delete organizer',
+            reason: `Organizer owns ${events.length} event(s). Please delete or reassign all events before deleting the organizer.`,
+            eventCount: events.length
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     // Delete from DynamoDB
     await client.models.User.delete({ id: params.id });
