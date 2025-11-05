@@ -372,3 +372,29 @@ If deployment fails:
 ---
 
 For additional support or questions, contact the development team.
+
+---
+
+## AWS Resources (Current Deployment)
+
+### Authentication (AWS Cognito)
+- **User Pool ID**: `ap-south-1_Hef2kiqUJ`
+- **Client ID**: `48bh0kvuh952qg6jslopgjo9d1`
+- **Region**: `ap-south-1`
+- **User Groups**: ADMIN, ORGANIZER, PHOTOGRAPHER
+
+### Data (AWS AppSync + DynamoDB)
+- **GraphQL API**: `https://jxnl434qardy5nperfgw7ah4oa.appsync-api.ap-south-1.amazonaws.com/graphql`
+- **API Key**: `da2-dmnmgvo6graxpe56m75i677iv4`
+- **Models**: User, Event, Photo, Session, PhotographerAssignment
+
+### Storage (AWS S3)
+- **Bucket**: `amplify-facefind-aminulis-facefindphotosbucket7b5c-2t1fe2jpyeqn`
+- **Region**: `ap-south-1`
+- **Paths**: originals/, processed/, thumbnails/, qr-codes/, event-assets/
+
+### Test Credentials
+- **Email**: test@facefind.com
+- **Password**: Test@123456
+- **Role**: ADMIN
+
